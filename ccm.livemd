@@ -1,0 +1,263 @@
+# Convergent Cross Mapping (CCM) Analysis
+
+```elixir
+Mix.install([
+  {:kino, "~> 0.12.0"},
+  {:vega_lite, "~> 0.1.8"},
+  {:kino_vega_lite, "~> 0.1.11"},
+  {:ccm, path: __DIR__}
+])
+
+alias VegaLite, as: Vl
+```
+
+## Introduction
+
+Convergent Cross Mapping (CCM) is a powerful method for detecting causality in coupled nonlinear dynamical systems. Unlike traditional correlation-based methods, CCM can distinguish between correlation and causation by examining the information content in reconstructed state spaces.
+
+This LiveBook demonstrates the CCM implementation with interactive examples and visualizations.
+
+## Example 1: Coupled Logistic Maps
+
+Let's start with a simple example using coupled logistic maps where we know the causal relationship.
+
+```elixir
+# Generate coupled logistic maps where Y influences X
+{x_series, y_series} = CCM.generate_coupled_logistic_maps(400, 0.05)
+```
+
+```elixir
+# Create time series data for plotting
+time_points = 1..length(x_series) |> Enum.to_list()
+time_series_data = Enum.zip([time_points, x_series, y_series])
+|> Enum.map(fn {t, x, y} -> %{time: t, x: x, y: y} end)
+
+# Plot the time series
+Vl.new(width: 800, height: 400, title: "Coupled Logistic Maps Time Series")
+|> Vl.layers([
+  Vl.new()
+    |> Vl.data_from_values(time_series_data)
+    |> Vl.mark(:line, color: "blue")
+    |> Vl.encode_field(:x, "time", type: :quantitative, title: "Time")
+    |> Vl.encode_field(:y, "x", type: :quantitative, title: "X Value", scale: [domain: [0, 1]])
+    |> Vl.resolve(:scale, y: :independent),
+  Vl.new()
+    |> Vl.data_from_values(time_series_data)
+    |> Vl.mark(:line, color: "red")
+    |> Vl.encode_field(:x, "time", type: :quantitative)
+    |> Vl.encode_field(:y, "y", type: :quantitative, title: "Y Value", scale: [domain: [0, 1]])
+  ])
+```
+
+Now let's perform CCM analysis on this data:
+
+```elixir
+# Create CCM analysis
+ccm = CCM.new(x_series, y_series, embedding_dim: 3, tau: 1, num_samples: 30)
+
+# Perform bidirectional CCM analysis
+IO.puts("Performing CCM analysis...")
+results = CCM.bidirectional_ccm(ccm)
+
+# Display results
+IO.puts("\n=== CCM Analysis Results ===")
+IO.puts("Y causes X (should be strong and convergent):")
+Enum.each(results.y_causes_x.results, fn {lib_size, corr} ->
+  IO.puts("  Library size #{lib_size}: correlation = #{Float.round(corr, 4)}")
+end)
+IO.puts("  Convergent: #{results.y_causes_x.convergent}")
+
+IO.puts("\nX causes Y (should be weak):")
+Enum.each(results.x_causes_y.results, fn {lib_size, corr} ->
+  IO.puts("  Library size #{lib_size}: correlation = #{Float.round(corr, 4)}")
+end)
+IO.puts("  Convergent: #{results.x_causes_y.convergent}")
+```
+
+Let's visualize the CCM convergence:
+
+```elixir
+# Prepare data for convergence plot
+y_causes_x_data = results.y_causes_x.results
+|> Enum.map(fn {lib_size, corr} -> %{library_size: lib_size, correlation: corr, direction: "Y → X"} end)
+
+x_causes_y_data = results.x_causes_y.results
+|> Enum.map(fn {lib_size, corr} -> %{library_size: lib_size, correlation: corr, direction: "X → Y"} end)
+
+convergence_data = y_causes_x_data ++ x_causes_y_data
+
+# Create convergence plot
+convergence_plot = Vl.new(width: 600, height: 400, title: "CCM Convergence Analysis")
+|> Vl.data_from_values(convergence_data)
+|> Vl.mark(:line, point: true)
+|> Vl.encode_field(:x, "library_size", type: :quantitative, title: "Library Size")
+|> Vl.encode_field(:y, "correlation", type: :quantitative, title: "Cross-Map Correlation")
+|> Vl.encode_field(:color, "direction", type: :nominal, title: "Causal Direction")
+|> Vl.encode_field(:stroke_dash, "direction", type: :nominal)
+
+Kino.VegaLite.new(convergence_plot)
+```
+
+## Interactive Parameter Exploration
+
+Let's create an interactive widget to explore how different parameters affect CCM analysis:
+
+```elixir
+# Create interactive controls
+coupling_slider = Kino.Input.range("Coupling Strength", min: 0.01, max: 0.15, step: 0.01, default: 0.05)
+embedding_slider = Kino.Input.range("Embedding Dimension", min: 2, max: 6, step: 1, default: 3)
+tau_slider = Kino.Input.range("Time Delay (τ)", min: 1, max: 5, step: 1, default: 1)
+samples_slider = Kino.Input.range("Number of Samples", min: 10, max: 50, step: 5, default: 20)
+
+form = Kino.Control.form([
+  coupling_strength: coupling_slider,
+  embedding_dim: embedding_slider,
+  tau: tau_slider,
+  num_samples: samples_slider
+], submit: "Run CCM Analysis")
+
+Kino.render(form)
+
+# Function to run analysis with parameters
+run_ccm_analysis = fn params ->
+  # Generate data with specified coupling
+  {x_data, y_data} = CCM.generate_coupled_logistic_maps(300, params.coupling_strength)
+  
+  # Run CCM analysis
+  ccm = CCM.new(x_data, y_data, 
+    embedding_dim: params.embedding_dim,
+    tau: params.tau,
+    num_samples: params.num_samples
+  )
+  
+  results = CCM.bidirectional_ccm(ccm)
+  
+  # Create visualization data
+  y_causes_x_data = results.y_causes_x.results
+  |> Enum.map(fn {lib_size, corr} -> %{library_size: lib_size, correlation: corr, direction: "Y → X"} end)
+
+  x_causes_y_data = results.x_causes_y.results
+  |> Enum.map(fn {lib_size, corr} -> %{library_size: lib_size, correlation: corr, direction: "X → Y"} end)
+
+  convergence_data = y_causes_x_data ++ x_causes_y_data
+  
+  # Create plot
+  plot = Vl.new(width: 600, height: 400, title: "CCM Analysis Results")
+  |> Vl.data_from_values(convergence_data)
+  |> Vl.mark(:line, point: true)
+  |> Vl.encode_field(:x, "library_size", type: :quantitative, title: "Library Size")
+  |> Vl.encode_field(:y, "correlation", type: :quantitative, title: "Cross-Map Correlation")
+  |> Vl.encode_field(:color, "direction", type: :nominal, title: "Causal Direction")
+  |> Vl.encode_field(:stroke_dash, "direction", type: :nominal)
+  
+  # Display results
+  IO.puts("=== Analysis Results ===")
+  IO.puts("Parameters: coupling=#{params.coupling_strength}, E=#{params.embedding_dim}, τ=#{params.tau}")
+  IO.puts("Y → X convergent: #{results.y_causes_x.convergent}")
+  IO.puts("X → Y convergent: #{results.x_causes_y.convergent}")
+  
+  Kino.VegaLite.new(plot)
+end
+
+# Listen for form submissions
+Kino.Control.stream(form)
+|> Kino.animate(fn params ->
+  run_ccm_analysis.(params.data)
+end)
+```
+
+## Understanding CCM Results
+
+CCM analysis provides several key insights:
+
+1. **Convergence**: If cross-map correlation increases with library size, it suggests a causal relationship
+2. **Asymmetry**: CCM can detect asymmetric causality (X causes Y but not vice versa)
+3. **Strength**: Higher correlation values indicate stronger causal coupling
+
+### Key Principles:
+
+* **True causality** shows convergence: correlation improves with more data
+* **Spurious correlations** don't converge: correlation stays flat or decreases
+* **Bidirectional analysis** reveals the direction of causality
+
+## Advanced Example: Custom Data Analysis
+
+You can also use CCM with your own time series data:
+
+```elixir
+# Example: Create your own time series data
+custom_data_input = Kino.Input.textarea("Custom Time Series Data", 
+  default: "1.0, 1.2, 1.5, 1.8, 2.0, 2.3, 2.1, 1.9, 1.6, 1.4\n0.5, 0.8, 1.1, 1.4, 1.6, 1.8, 1.7, 1.5, 1.2, 1.0",
+  placeholder: "Enter two time series separated by newline, values comma-separated")
+
+analyze_button = Kino.Control.button("Analyze Custom Data")
+
+Kino.render(custom_data_input)
+Kino.render(analyze_button)
+
+Kino.Control.stream(analyze_button)
+|> Kino.listen(fn _event ->
+  data_text = Kino.Input.read(custom_data_input)
+  
+  try do
+    lines = String.split(data_text, "\n")
+    |> Enum.map(&String.trim/1)
+    |> Enum.filter(&(&1 != ""))
+    
+    if length(lines) >= 2 do
+      [x_line, y_line] = Enum.take(lines, 2)
+      
+      x_data = String.split(x_line, ",")
+      |> Enum.map(&String.trim/1)
+      |> Enum.map(&String.to_float/1)
+      
+      y_data = String.split(y_line, ",")
+      |> Enum.map(&String.trim/1)
+      |> Enum.map(&String.to_float/1)
+      
+      if length(x_data) == length(y_data) and length(x_data) >= 10 do
+        ccm = CCM.new(x_data, y_data, embedding_dim: 3, tau: 1, num_samples: 20)
+        results = CCM.bidirectional_ccm(ccm)
+        
+        IO.puts("=== Custom Data CCM Analysis ===")
+        IO.puts("Data length: #{length(x_data)} points")
+        IO.puts("X causes Y: #{results.x_causes_y.convergent}")
+        IO.puts("Y causes X: #{results.y_causes_x.convergent}")
+        
+        # Show final correlation values
+        final_x_causes_y = results.x_causes_y.results |> List.last() |> elem(1)
+        final_y_causes_x = results.y_causes_x.results |> List.last() |> elem(1)
+        
+        IO.puts("Final X→Y correlation: #{Float.round(final_x_causes_y, 4)}")
+        IO.puts("Final Y→X correlation: #{Float.round(final_y_causes_x, 4)}")
+      else
+        IO.puts("Error: Both time series must have the same length and at least 10 points")
+      end
+    else
+      IO.puts("Error: Please provide two time series separated by newlines")
+    end
+  rescue
+    e -> IO.puts("Error parsing data: #{Exception.message(e)}")
+  end
+end)
+```
+
+## Summary
+
+This LiveBook demonstrates the key capabilities of the CCM module:
+
+1. **Causal detection** in nonlinear coupled systems
+2. **Convergence analysis** to distinguish correlation from causation
+3. **Bidirectional testing** to determine causal direction
+4. **Parameter exploration** to understand sensitivity
+5. **Custom data analysis** for real-world applications
+
+CCM is particularly powerful for:
+
+* Ecological systems (predator-prey relationships)
+* Climate data (temperature-precipitation coupling)
+* Financial markets (asset price interactions)
+* Neuroscience (brain region connectivity)
+* Any coupled nonlinear dynamical system
+
+The method's strength lies in its ability to detect causality even when traditional correlation methods fail, making it invaluable for understanding complex systems where experimental manipulation isn't possible.
