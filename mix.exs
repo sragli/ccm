@@ -1,4 +1,4 @@
-defmodule Ccm.MixProject do
+defmodule CCM.MixProject do
   use Mix.Project
 
   def project do

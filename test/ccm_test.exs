@@ -1,4 +1,4 @@
-defmodule CcmTest do
+defmodule CCMTest do
   use ExUnit.Case
   doctest CCM
 
