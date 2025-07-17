@@ -23,7 +23,7 @@ Let's start with a simple example using coupled logistic maps where we know the 
 
 ```elixir
 # Generate coupled logistic maps where Y influences X
-{x_series, y_series} = CCM.generate_coupled_logistic_maps(400, 0.05)
+{x_series, y_series} = CCMExample.generate_coupled_logistic_maps(400, 0.05)
 ```
 
 ```elixir
@@ -121,7 +121,7 @@ Kino.render(form)
 # Function to run analysis with parameters
 run_ccm_analysis = fn params ->
   # Generate data with specified coupling
-  {x_data, y_data} = CCM.generate_coupled_logistic_maps(300, params.coupling_strength)
+  {x_data, y_data} = CCMExample.generate_coupled_logistic_maps(300, params.coupling_strength)
   
   # Run CCM analysis
   ccm = CCM.new(x_data, y_data, 

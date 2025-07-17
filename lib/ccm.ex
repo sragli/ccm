@@ -43,23 +43,26 @@ defmodule CCM do
   Returns a map with correlation coefficients for each library size.
   """
   def cross_map(%CCM{} = ccm, direction \\ :x_causes_y) do
-    {source_series, target_series} = case direction do
-      :x_causes_y -> {ccm.y_series, ccm.x_series}
-      :y_causes_x -> {ccm.x_series, ccm.y_series}
-    end
+    {source_series, target_series} =
+      case direction do
+        :x_causes_y -> {ccm.y_series, ccm.x_series}
+        :y_causes_x -> {ccm.x_series, ccm.y_series}
+      end
 
     # Create embedding from source series
     embedding = time_delay_embedding(source_series, ccm.embedding_dim, ccm.tau)
 
     # Perform cross-mapping for each library size
-    results = Enum.map(ccm.lib_sizes, fn lib_size ->
-      correlations = Enum.map(1..ccm.num_samples, fn _ ->
-        cross_map_sample(embedding, target_series, lib_size, ccm.embedding_dim, ccm.tau)
-      end)
+    results =
+      Enum.map(ccm.lib_sizes, fn lib_size ->
+        correlations =
+          Enum.map(1..ccm.num_samples, fn _ ->
+            cross_map_sample(embedding, target_series, lib_size, ccm.embedding_dim, ccm.tau)
+          end)
 
-      avg_correlation = Enum.sum(correlations) / length(correlations)
-      {lib_size, avg_correlation}
-    end)
+        avg_correlation = Enum.sum(correlations) / length(correlations)
+        {lib_size, avg_correlation}
+      end)
 
     %{
       direction: direction,
@@ -125,19 +128,21 @@ defmodule CCM do
 
     if length(pred_indices) < 2, do: 0.0
 
-    predictions = Enum.map(pred_indices, fn pred_idx ->
-      query_point = Enum.at(embedding, pred_idx)
-      actual_value = Enum.at(adjusted_target, pred_idx)
-      predicted_value = predict_point(query_point, library, lib_targets)
-      {actual_value, predicted_value}
-    end)
+    predictions =
+      Enum.map(pred_indices, fn pred_idx ->
+        query_point = Enum.at(embedding, pred_idx)
+        actual_value = Enum.at(adjusted_target, pred_idx)
+        predicted_value = predict_point(query_point, library, lib_targets)
+        {actual_value, predicted_value}
+      end)
 
     # Filter out nil values
-    valid_predictions = predictions
-    |> Enum.filter(fn {actual, predicted} ->
-      actual != nil and predicted != nil and
-      is_number(actual) and is_number(predicted)
-    end)
+    valid_predictions =
+      predictions
+      |> Enum.filter(fn {actual, predicted} ->
+        actual != nil and predicted != nil and
+          is_number(actual) and is_number(predicted)
+      end)
 
     if length(valid_predictions) < 2 do
       0.0
@@ -154,34 +159,38 @@ defmodule CCM do
     k = min(length(query_point), length(library) - 1)
     if k < 1, do: 0.0
 
-    distances = Enum.map(Enum.with_index(library), fn {lib_point, idx} ->
-      dist = euclidean_distance(query_point, lib_point)
-      {dist, idx}
-    end)
+    distances =
+      Enum.map(Enum.with_index(library), fn {lib_point, idx} ->
+        dist = euclidean_distance(query_point, lib_point)
+        {dist, idx}
+      end)
 
-    nearest = distances
-    |> Enum.sort_by(&elem(&1, 0))
-    |> Enum.take(k + 1)
+    nearest =
+      distances
+      |> Enum.sort_by(&elem(&1, 0))
+      |> Enum.take(k + 1)
 
     if length(nearest) == 0, do: 0.0
 
     # Calculate weights using exponential kernel
-    weights = Enum.map(nearest, fn {dist, _} ->
-      if dist == 0, do: 1.0, else: :math.exp(-dist / (dist + 1.0e-8))
-    end)
+    weights =
+      Enum.map(nearest, fn {dist, _} ->
+        if dist == 0, do: 1.0, else: :math.exp(-dist / (dist + 1.0e-8))
+      end)
 
     total_weight = Enum.sum(weights)
 
     if total_weight == 0, do: 0.0
 
     # Weighted prediction
-    weighted_sum = nearest
-    |> Enum.zip(weights)
-    |> Enum.map(fn {{_, idx}, weight} ->
-      target_val = Enum.at(lib_targets, idx)
-      if is_number(target_val), do: target_val * weight, else: 0.0
-    end)
-    |> Enum.sum()
+    weighted_sum =
+      nearest
+      |> Enum.zip(weights)
+      |> Enum.map(fn {{_, idx}, weight} ->
+        target_val = Enum.at(lib_targets, idx)
+        if is_number(target_val), do: target_val * weight, else: 0.0
+      end)
+      |> Enum.sum()
 
     prediction = weighted_sum / total_weight
 
@@ -203,15 +212,16 @@ defmodule CCM do
     {actuals, predicted} = Enum.unzip(predictions)
 
     # Filter out any invalid values (NaN shows up as :nan, infinity as :inf/-:inf)
-    valid_pairs = actuals
-    |> Enum.zip(predicted)
-    |> Enum.filter(fn {a, p} ->
-      is_number(a) and is_number(p) and
-      a != :nan and p != :nan and
-      a != :inf and p != :inf and
-      a != :"-inf" and p != :"-inf" and
-      is_finite(a) and is_finite(p)
-    end)
+    valid_pairs =
+      actuals
+      |> Enum.zip(predicted)
+      |> Enum.filter(fn {a, p} ->
+        is_number(a) and is_number(p) and
+          a != :nan and p != :nan and
+          a != :inf and p != :inf and
+          a != :"-inf" and p != :"-inf" and
+          is_finite(a) and is_finite(p)
+      end)
 
     if length(valid_pairs) < 2, do: 0.0
 
@@ -220,24 +230,31 @@ defmodule CCM do
     actual_mean = Enum.sum(valid_actuals) / length(valid_actuals)
     pred_mean = Enum.sum(valid_predicted) / length(valid_predicted)
 
-    numerator = valid_actuals
-    |> Enum.zip(valid_predicted)
-    |> Enum.map(fn {a, p} -> (a - actual_mean) * (p - pred_mean) end)
-    |> Enum.sum()
+    numerator =
+      valid_actuals
+      |> Enum.zip(valid_predicted)
+      |> Enum.map(fn {a, p} -> (a - actual_mean) * (p - pred_mean) end)
+      |> Enum.sum()
 
-    actual_var = valid_actuals
-    |> Enum.map(fn a -> (a - actual_mean) * (a - actual_mean) end)
-    |> Enum.sum()
+    actual_var =
+      valid_actuals
+      |> Enum.map(fn a -> (a - actual_mean) * (a - actual_mean) end)
+      |> Enum.sum()
 
-    pred_var = valid_predicted
-    |> Enum.map(fn p -> (p - pred_mean) * (p - pred_mean) end)
-    |> Enum.sum()
+    pred_var =
+      valid_predicted
+      |> Enum.map(fn p -> (p - pred_mean) * (p - pred_mean) end)
+      |> Enum.sum()
 
     denominator = :math.sqrt(actual_var * pred_var)
 
     cond do
-      denominator == 0 -> 0.0
-      not is_finite(denominator) -> 0.0
+      denominator == 0 ->
+        0.0
+
+      not is_finite(denominator) ->
+        0.0
+
       true ->
         result = numerator / denominator
         if is_finite(result), do: result, else: 0.0
@@ -247,18 +264,20 @@ defmodule CCM do
   # Helper function to check if a number is finite
   defp is_finite(x) when is_number(x) do
     x != :inf and x != :"-inf" and x != :nan and
-    x > -1.0e308 and x < 1.0e308
+      x > -1.0e308 and x < 1.0e308
   end
+
   defp is_finite(_), do: false
 
   defp is_convergent?(results) do
     if length(results) < 3, do: false
 
     # Filter out invalid correlations
-    valid_results = results
-    |> Enum.filter(fn {_, corr} ->
-      is_number(corr) and is_finite(corr)
-    end)
+    valid_results =
+      results
+      |> Enum.filter(fn {_, corr} ->
+        is_number(corr) and is_finite(corr)
+      end)
 
     if length(valid_results) < 3, do: false
 
@@ -267,7 +286,13 @@ defmodule CCM do
     n = length(valid_results)
     sum_x = Enum.sum(valid_lib_sizes)
     sum_y = Enum.sum(valid_correlations)
-    sum_xy = valid_lib_sizes |> Enum.zip(valid_correlations) |> Enum.map(fn {x, y} -> x * y end) |> Enum.sum()
+
+    sum_xy =
+      valid_lib_sizes
+      |> Enum.zip(valid_correlations)
+      |> Enum.map(fn {x, y} -> x * y end)
+      |> Enum.sum()
+
     sum_x2 = valid_lib_sizes |> Enum.map(fn x -> x * x end) |> Enum.sum()
 
     denominator = n * sum_x2 - sum_x * sum_x
@@ -276,61 +301,8 @@ defmodule CCM do
       false
     else
       slope = (n * sum_xy - sum_x * sum_y) / denominator
-      slope > 0.001  # Positive slope indicates convergence
+      # Positive slope indicates convergence
+      slope > 0.001
     end
-  end
-
-  @doc """
-  Utility function to generate coupled logistic maps for testing.
-  """
-  def generate_coupled_logistic_maps(length, coupling_strength \\ 0.02) do
-    r1 = 3.7
-    r2 = 3.6
-
-    {x_series, y_series} = Enum.reduce(1..length, {[0.1], [0.2]}, fn _, {x_acc, y_acc} ->
-      x_prev = hd(x_acc)
-      y_prev = hd(y_acc)
-
-      # Coupled logistic maps with proper bounds checking
-      x_raw = r1 * x_prev * (1 - x_prev) + coupling_strength * (y_prev - x_prev)
-      y_raw = r2 * y_prev * (1 - y_prev)
-
-      # Clamp values to [0, 1] to maintain stability
-      x_new = max(0.0, min(1.0, x_raw))
-      y_new = max(0.0, min(1.0, y_raw))
-
-      {[x_new | x_acc], [y_new | y_acc]}
-    end)
-
-    {Enum.reverse(x_series), Enum.reverse(y_series)}
-  end
-
-  @doc """
-  Example usage and testing function.
-  """
-  def example do
-    # Generate test data with known causal relationship
-    {x_series, y_series} = generate_coupled_logistic_maps(300, 0.05)
-
-    # Create CCM analysis
-    ccm = CCM.new(x_series, y_series, embedding_dim: 3, tau: 1, num_samples: 30)
-
-    # Perform bidirectional analysis
-    results = bidirectional_ccm(ccm)
-
-    IO.puts("=== CCM Analysis Results ===")
-    IO.puts("Y causes X (should be weak):")
-    Enum.each(results.x_causes_y.results, fn {lib_size, corr} ->
-      IO.puts("  Library size #{lib_size}: correlation = #{Float.round(corr, 4)}")
-    end)
-    IO.puts("  Convergent: #{results.x_causes_y.convergent}")
-
-    IO.puts("\nX causes Y (should be strong and convergent):")
-    Enum.each(results.y_causes_x.results, fn {lib_size, corr} ->
-      IO.puts("  Library size #{lib_size}: correlation = #{Float.round(corr, 4)}")
-    end)
-    IO.puts("  Convergent: #{results.y_causes_x.convergent}")
-
-    results
   end
 end
