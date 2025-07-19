@@ -2,9 +2,6 @@ defmodule CCM do
   @moduledoc """
   Convergent Cross Mapping (CCM) implementation for detecting causality
   in coupled nonlinear dynamical systems.
-
-  CCM tests whether variable X causally influences variable Y by examining
-  if historical values of Y contain information about X due to their coupling.
   """
 
   defstruct [:x_series, :y_series, :embedding_dim, :tau, :lib_sizes, :num_samples]
