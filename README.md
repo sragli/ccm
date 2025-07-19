@@ -113,4 +113,3 @@ The best indication of a causal relationship is that the Forecast Skill of one (
 * Sugihara, George; May M., Robert. (19 April 1990). Nonlinear forecasting as a way of distinguishing chaos from measurement error in time series. Nature, Vol. 344, No. 6268, pp. 734-741
 * Granger, C. W. J. (1969). Investigating Causal Relations by Econometric Models and Cross-spectral Methods. Econometrica. 37 (3): 424–438. doi:10.2307/1912791. JSTOR 1912791.
 * Whitney, Hassler (1992), Eells, James; Toledo, Domingo (eds.), Collected Papers, Boston: Birkhäuser, ISBN 0-8176-3560-2
-* Scikit-learn: Machine Learning in Python, Pedregosa et al., JMLR 12, pp. 2825-2830, 2011.
