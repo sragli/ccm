@@ -26,9 +26,9 @@ end
 
 ## Main Functions
 
-* CCM.new/3 - Creates a new CCM analysis structure
-* cross_map/2 - Performs unidirectional CCM analysis
-* bidirectional_ccm/1 - Tests causality in both directions
+* `CCM.new/3` - Creates a new CCM analysis structure
+* `cross_map/2` - Performs unidirectional CCM analysis
+* `bidirectional_ccm/1` - Tests causality in both directions
 
 ## Usage
 
@@ -48,7 +48,7 @@ CCMExample.run()
 
 Correlation-based inference is widely used to deal with causal relationships. Unfortunately, these methods are not suitable to deal with nonlinear systems, since even a simple nonlinear process can produce "mirage correlations" [Sugihara et al. 2012] where variables appear to be correlated, but this correlation may vanish or even change sign over different time periods. Such transient correlations can produce the appearance of non-stationarity that can obscure any statistical association, and more importantly they can suggest that coupled variables are not causally related at all. Thus, in a linear system, just as "correlation does not imply causation", in a nonlinear system lack of correlation does not imply lack of causation.
 
-Convergent Cross Mapping (CCM) [Sugihara et al., 2012] is a technique based on dynamical systems theory. Its main purpose is to assess causal relationship between variables. The general idea of CCM is reconstructing system attractors from time series data [Takens, 1981], [Abarbanel, 1996], [Casdagli et al. 1991], [Sauer et al. 1991], [Deyle and Sugihara 2011].
+Convergent Cross Mapping (CCM) [Sugihara et al., 2012] is a technique based on dynamical systems theory. Its main purpose is to assess causal relationship between variables. The general idea of CCM is reconstructing system attractors from time series data [Takens, 1981], [Abarbanel, 1996], [Sauer et al. 1991], [Deyle and Sugihara 2011].
 
 CCM works by constructing a shadow manifold from time series data of variables, one for each variable. These shadow manifolds are approximations of the original attractors. According to Taken's theorem, when different variables are present in the same dynamical system, their shadow manifolds are diffeomorphic to the original attractor (there is a 1:1 mapping between them). It means that if a variable influences to another variable, the shadow manifold of the dependent variable can be used to estimate values of the independent variable. This estimate is the _cross-map_.
 
@@ -108,8 +108,12 @@ The best indication of a causal relationship is that the Forecast Skill of one (
 
 ## Citations
 
-* Takens F. (1981) Detecting strange attractors in turbulence. In: Rand D., Young LS. (eds) Dynamical Systems and Turbulence, Warwick 1980. Lecture Notes in Mathematics, vol 898., doi:10.1007/BFb0091924
-* Sugihara, George; et al. (26 October 2012). Detecting Causality in Complex Ecosystems. Science. 338 (6106): 496–500., doi:10.1126/science.1227079
-* Sugihara, George; May M., Robert. (19 April 1990). Nonlinear forecasting as a way of distinguishing chaos from measurement error in time series. Nature, Vol. 344, No. 6268, pp. 734-741
+* Haefliger, A., & Hirsch, M. (1963). On the existence and classification of differentiable embeddings. Topology, 2, 129-135.
 * Granger, C. W. J. (1969). Investigating Causal Relations by Econometric Models and Cross-spectral Methods. Econometrica. 37 (3): 424–438. doi:10.2307/1912791. JSTOR 1912791.
+* Takens F. (1981) Detecting strange attractors in turbulence. In: Rand D., Young LS. (eds) Dynamical Systems and Turbulence, Warwick 1980. Lecture Notes in * Sugihara, George; May M., Robert. (19 April 1990). Nonlinear forecasting as a way of distinguishing chaos from measurement error in time series. Nature, Vol. 344, No. 6268, pp. 734-741
+* Sauer, T., Yorke, J. and Casdagli, M. (1991) Embedology. Journal of Statistical Physics, 65, 579. doi:10.1007/BF01053745
 * Whitney, Hassler (1992), Eells, James; Toledo, Domingo (eds.), Collected Papers, Boston: Birkhäuser, ISBN 0-8176-3560-2
+* Abarbanel, H.D.I. (1996) Analysis of Observed Chaotic Data. Springer-Verlag, New York, 272.
+Mathematics, vol 898., doi:10.1007/BFb0091924
+* Deyle ER, Sugihara G (2011) Generalized Theorems for Nonlinear State Space Reconstruction. PLoS ONE 6(3): e18295. doi:10.1371/journal.pone.0018295
+* Sugihara, George; et al. (26 October 2012). Detecting Causality in Complex Ecosystems. Science. 338 (6106): 496–500., doi:10.1126/science.1227079

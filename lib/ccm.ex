@@ -64,7 +64,7 @@ defmodule CCM do
     %{
       direction: direction,
       results: results,
-      convergent: is_convergent?(results)
+      convergent: convergent?(results)
     }
   end
 
@@ -258,7 +258,6 @@ defmodule CCM do
     end
   end
 
-  # Helper function to check if a number is finite
   defp is_finite(x) when is_number(x) do
     x != :inf and x != :"-inf" and x != :nan and
       x > -1.0e308 and x < 1.0e308
@@ -266,7 +265,7 @@ defmodule CCM do
 
   defp is_finite(_), do: false
 
-  defp is_convergent?(results) do
+  defp convergent?(results) do
     if length(results) < 3, do: false
 
     # Filter out invalid correlations
