@@ -247,10 +247,6 @@ defmodule CCM do
     end
   end
 
-  defp is_finite(x) when is_number(x) do
-    x > Float.min_finite() and x < Float.max_finite()
-  end
-
   defp convergent?(results) when length(results) < 3, do: false
 
   defp convergent?(results) do
@@ -274,7 +270,10 @@ defmodule CCM do
         |> Enum.map(fn {x, y} -> x * y end)
         |> Enum.sum()
 
-      sum_x2 = valid_lib_sizes |> Enum.map(fn x -> x * x end) |> Enum.sum()
+      sum_x2 =
+        valid_lib_sizes
+        |> Enum.map(fn x -> x * x end)
+        |> Enum.sum()
 
       denominator = n * sum_x2 - sum_x * sum_x
 
@@ -285,6 +284,8 @@ defmodule CCM do
       else
         false
       end
+    else
+      false
     end
   end
 
@@ -294,8 +295,8 @@ defmodule CCM do
     dist_values = Enum.map(distances, fn {dist, _} -> dist end)
     min_dist = Enum.min(dist_values)
 
-    distances
-    |> Enum.map(fn {dist, _} ->
+    dist_values
+    |> Enum.map(fn dist ->
       if dist < 1.0e-12 do
         1.0
       else
@@ -303,5 +304,9 @@ defmodule CCM do
         :math.exp(-dist / (min_dist + 1.0e-8))
       end
     end)
+  end
+
+  defp is_finite(x) when is_number(x) do
+    x > Float.min_finite() and x < Float.max_finite()
   end
 end
