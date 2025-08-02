@@ -141,7 +141,7 @@ defmodule CCM do
        do: 0.0
 
   defp predict_point(query_point, library, lib_targets) do
-    # Use E+1 neighbors as per standard CCM
+    # Use E+1 neighbors
     embedding_dim = length(query_point)
     k = min(embedding_dim + 1, length(library))
 
@@ -244,7 +244,6 @@ defmodule CCM do
     end
   end
 
-  # Calculate weights using exponential kernel
   defp calculate_weights(distances) do
     # Extract just the distance values to find minimum
     dist_values = Enum.map(distances, fn {dist, _} -> dist end)
