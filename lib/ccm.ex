@@ -22,6 +22,10 @@ defmodule CCM do
     tau = Keyword.get(opts, :tau, 1)
     num_samples = Keyword.get(opts, :num_samples, 100)
 
+    if length(x_series) != length(y_series) do
+      raise ArgumentError, "x_series and y_series must have the same length"
+    end
+
     max_lib_size = length(x_series) - (embedding_dim - 1) * tau
     lib_sizes = Keyword.get(opts, :lib_sizes, generate_lib_sizes(max_lib_size))
 
@@ -100,7 +104,7 @@ defmodule CCM do
     end
   end
 
-  defp cross_map_sample(embedding, _, lib_size, _, _) when min(lib_size, length(embedding) - 1),
+  defp cross_map_sample(embedding, _, lib_size, _, _) when lib_size >= length(embedding),
     do: 0.0
 
   defp cross_map_sample(embedding, target_series, lib_size, embedding_dim, tau) do
@@ -141,8 +145,9 @@ defmodule CCM do
        do: 0.0
 
   defp predict_point(query_point, library, lib_targets) do
-    # Find k+1 nearest neighbors (where k is embedding dimension)
-    k = min(length(query_point), length(library) - 1)
+    # Use E+1 neighbors as per standard CCM
+    embedding_dim = length(query_point)
+    k = min(embedding_dim + 1, length(library))
 
     distances =
       Enum.map(Enum.with_index(library), fn {lib_point, idx} ->
@@ -153,18 +158,12 @@ defmodule CCM do
     nearest =
       distances
       |> Enum.sort_by(&elem(&1, 0))
-      |> Enum.take(k + 1)
+      |> Enum.take(k)
 
     if length(nearest) == 0 do
       0.0
     else
-      # Calculate weights using exponential kernel
-      weights =
-        nearest
-        |> Enum.map(fn {dist, _} ->
-          if dist == 0, do: 1.0, else: :math.exp(-dist / (dist + 1.0e-8))
-        end)
-
+      weights = calculate_weights(nearest)
       total_weight = Enum.sum(weights)
 
       if total_weight == 0 do
@@ -283,7 +282,26 @@ defmodule CCM do
         slope = (n * sum_xy - sum_x * sum_y) / denominator
         # Positive slope indicates convergence
         slope > 0.001
+      else
+        false
       end
     end
+  end
+
+  # Calculate weights using exponential kernel
+  defp calculate_weights(distances) do
+    # Extract just the distance values to find minimum
+    dist_values = Enum.map(distances, fn {dist, _} -> dist end)
+    min_dist = Enum.min(dist_values)
+
+    distances
+    |> Enum.map(fn {dist, _} ->
+      if dist < 1.0e-12 do
+        1.0
+      else
+        # Scale by minimum distance to avoid very small weights
+        :math.exp(-dist / (min_dist + 1.0e-8))
+      end
+    end)
   end
 end
