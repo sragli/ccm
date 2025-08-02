@@ -132,11 +132,7 @@ defmodule CCM do
           {actual_value, predicted_value}
         end)
 
-      valid_predictions =
-        predictions
-        |> Enum.filter(fn {actual, predicted} -> is_number(actual) and is_number(predicted) end)
-
-      correlation(valid_predictions)
+      correlation(predictions)
     end
   end
 
@@ -173,16 +169,10 @@ defmodule CCM do
         weighted_sum =
           nearest
           |> Enum.zip(weights)
-          |> Enum.map(fn {{_, idx}, weight} ->
-            target_val = Enum.at(lib_targets, idx)
-            if is_number(target_val), do: target_val * weight, else: 0.0
-          end)
+          |> Enum.map(fn {{_, idx}, weight} -> Enum.at(lib_targets, idx) * weight end)
           |> Enum.sum()
 
-        prediction = weighted_sum / total_weight
-
-        # Return 0 if prediction is invalid
-        if is_finite(prediction), do: prediction, else: 0.0
+        weighted_sum / total_weight
       end
     end
   end
@@ -200,90 +190,55 @@ defmodule CCM do
   defp correlation(predictions) do
     {actuals, predicted} = Enum.unzip(predictions)
 
-    valid_pairs =
+    actual_mean = Enum.sum(actuals) / length(actuals)
+    pred_mean = Enum.sum(predicted) / length(predicted)
+
+    numerator =
       actuals
       |> Enum.zip(predicted)
-      |> Enum.filter(fn {a, p} ->
-        is_number(a) and is_number(p) and is_finite(a) and is_finite(p)
-      end)
+      |> Enum.map(fn {a, p} -> (a - actual_mean) * (p - pred_mean) end)
+      |> Enum.sum()
 
-    if length(valid_pairs) < 2 do
-      0.0
-    else
-      {valid_actuals, valid_predicted} = Enum.unzip(valid_pairs)
+    actual_var =
+      actuals
+      |> Enum.map(fn a -> (a - actual_mean) * (a - actual_mean) end)
+      |> Enum.sum()
 
-      actual_mean = Enum.sum(valid_actuals) / length(valid_actuals)
-      pred_mean = Enum.sum(valid_predicted) / length(valid_predicted)
+    pred_var =
+      predicted
+      |> Enum.map(fn p -> (p - pred_mean) * (p - pred_mean) end)
+      |> Enum.sum()
 
-      numerator =
-        valid_actuals
-        |> Enum.zip(valid_predicted)
-        |> Enum.map(fn {a, p} -> (a - actual_mean) * (p - pred_mean) end)
-        |> Enum.sum()
-
-      actual_var =
-        valid_actuals
-        |> Enum.map(fn a -> (a - actual_mean) * (a - actual_mean) end)
-        |> Enum.sum()
-
-      pred_var =
-        valid_predicted
-        |> Enum.map(fn p -> (p - pred_mean) * (p - pred_mean) end)
-        |> Enum.sum()
-
-      denominator = :math.sqrt(actual_var * pred_var)
-
-      cond do
-        denominator == 0 ->
-          0.0
-
-        not is_finite(denominator) ->
-          0.0
-
-        true ->
-          result = numerator / denominator
-          if is_finite(result), do: result, else: 0.0
-      end
-    end
+    denominator = :math.sqrt(actual_var * pred_var)
+    if denominator != 0, do: numerator / denominator, else: 0.0
   end
 
   defp convergent?(results) when length(results) < 3, do: false
 
   defp convergent?(results) do
-    # Filter out invalid correlations
-    valid_results =
-      results
-      |> Enum.filter(fn {_, corr} ->
-        is_number(corr) and is_finite(corr)
-      end)
+    {lib_sizes, correlations} = Enum.unzip(results)
 
-    if length(valid_results) >= 3 do
-      {valid_lib_sizes, valid_correlations} = Enum.unzip(valid_results)
+    n = length(results)
+    sum_x = Enum.sum(lib_sizes)
+    sum_y = Enum.sum(correlations)
 
-      n = length(valid_results)
-      sum_x = Enum.sum(valid_lib_sizes)
-      sum_y = Enum.sum(valid_correlations)
+    sum_xy =
+      lib_sizes
+      |> Enum.zip(correlations)
+      |> Enum.map(fn {x, y} -> x * y end)
+      |> Enum.sum()
 
-      sum_xy =
-        valid_lib_sizes
-        |> Enum.zip(valid_correlations)
-        |> Enum.map(fn {x, y} -> x * y end)
-        |> Enum.sum()
+    sum_x2 =
+      lib_sizes
+      |> Enum.map(fn x -> x * x end)
+      |> Enum.sum()
 
-      sum_x2 =
-        valid_lib_sizes
-        |> Enum.map(fn x -> x * x end)
-        |> Enum.sum()
+    denominator = n * sum_x2 - sum_x * sum_x
 
-      denominator = n * sum_x2 - sum_x * sum_x
-
-      if denominator != 0 do
-        slope = (n * sum_xy - sum_x * sum_y) / denominator
-        # Positive slope indicates convergence
-        slope > 0.001
-      else
-        false
-      end
+    if denominator != 0 do
+      slope = (n * sum_xy - sum_x * sum_y) / denominator
+      # Positive slope indicates convergence
+      slope > 0.001
     else
       false
     end
@@ -304,9 +259,5 @@ defmodule CCM do
         :math.exp(-dist / (min_dist + 1.0e-8))
       end
     end)
-  end
-
-  defp is_finite(x) when is_number(x) do
-    x > Float.min_finite() and x < Float.max_finite()
   end
 end
