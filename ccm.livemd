@@ -23,7 +23,7 @@ Let's start with a simple example using coupled logistic maps where we know the 
 
 ```elixir
 # Generate coupled logistic maps where Y influences X
-{x_series, y_series} = CCMExample.generate_coupled_logistic_maps(400, 0.05)
+{x_series, y_series} = CCMExample.generate_coupled_logistic_maps(300, 0.01)
 ```
 
 ```elixir
