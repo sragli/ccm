@@ -29,7 +29,7 @@ defmodule CCM.MixProject do
   defp package() do
     [
       # These are the default files included in the package
-      files: ~w(lib .formatter.exs mix.exs README.md LICENSE* CHANGELOG*),
+      files: ~w(lib .formatter.exs mix.exs README.md LICENSE CHANGELOG),
       licenses: ["Apache-2.0"],
       links: %{"GitHub" => "https://github.com/sragli/ccm"}
     ]
