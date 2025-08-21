@@ -17,14 +17,16 @@ defmodule CCM do
   - lib_sizes: List of library sizes to test (default: auto-generated)
   - num_samples: Number of bootstrap samples (default: 100)
   """
-  def new(x_series, y_series, opts \\ []) do
+  def new(x_series, y_series, opts \\ [])
+
+  def new(x_series, y_series, _opts) when length(x_series) != length(y_series) do
+    raise ArgumentError, "x_series and y_series must have the same length"
+  end
+
+  def new(x_series, y_series, opts) do
     embedding_dim = Keyword.get(opts, :embedding_dim, 3)
     tau = Keyword.get(opts, :tau, 1)
     num_samples = Keyword.get(opts, :num_samples, 100)
-
-    if length(x_series) != length(y_series) do
-      raise ArgumentError, "x_series and y_series must have the same length"
-    end
 
     max_lib_size = length(x_series) - (embedding_dim - 1) * tau
     lib_sizes = Keyword.get(opts, :lib_sizes, generate_lib_sizes(max_lib_size))
