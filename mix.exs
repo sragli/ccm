@@ -37,7 +37,7 @@ defmodule CCM.MixProject do
   defp docs() do
     [
       main: "CCM",
-      extras: ["README.md", "LICENSE", "examples.livemd"]
+      extras: ["README.md", "LICENSE", "examples.livemd", "CHANGELOG"]
     ]
   end
 
