@@ -6,7 +6,7 @@ CCM tests whether variable X causally influences variable Y by examining if hist
 
 ## Installation
 
-If [available in Hex](https://hex.pm/docs/publish), the package can be installed by adding `ccm` to your list of dependencies in `mix.exs`:
+The package can be installed by adding `ccm` to your list of dependencies in `mix.exs`:
 
 ```elixir
 def deps do
@@ -61,11 +61,13 @@ Time delay τ (lag) is a required parameter to create the embedding of the time 
 
 ### Embedding
 
-A dynamical system is the tuple (M, f, T), where M is a manifold (in our case, an Euclidean space), T is time domain and f is an evolution rule t → f<sup>t</sup> (t ∈ T) such that f<sup>t</sup> is a diffeomorphism of the manifold to itself. In other terms, f(t) is a diffeomorphism, for every time t in the domain T [Wikipedia](https://en.wikipedia.org/wiki/Dynamical_system). We define this f function as a transformation to represent the temporal distance of data points as spatial distance of states.
+A dynamical system is the tuple (M, f, T), where M is a manifold (in our case, an Euclidean space), T is time domain and f is an evolution rule $t → f^t (t ∈ T)$ such that $f^t$ is a diffeomorphism of the manifold to itself. In other terms, f(t) is a diffeomorphism, for every time t in the domain T [Wikipedia](https://en.wikipedia.org/wiki/Dynamical_system). We define this f function as a transformation to represent the temporal distance of data points as spatial distance of states.
 
-According to Takens' theorem [Takens, 1981], we can predict a causal relationship between time series by analysing their shadow manifolds [Sugihara et al., 2012]. It means that we can estimate the original attractor by embedding the original 1D time series, using time-delayed surrogate copies of it [Sugihara et al., 1990]. Or, in a more formal way, we can construct an E-dimensional shadow manifold M<sub>x</sub> from the original one-dimensional time series X as follows:
+According to Takens' theorem [Takens, 1981], we can predict a causal relationship between time series by analysing their shadow manifolds [Sugihara et al., 2012]. It means that we can estimate the original attractor by embedding the original 1D time series, using time-delayed surrogate copies of it [Sugihara et al., 1990]. Or, in a more formal way, we can construct an E-dimensional shadow manifold $M_x$ from the original one-dimensional time series X as follows:
 
-M<sub>x</sub> = (x<sub>t</sub>, x<sub>t−τ</sub>, x<sub>t−2τ</sub>, ... x<sub>t−(E−1)τ</sub>)
+$$
+M_x = (x_t, x_{t−τ}, x_{t−2τ}, ... x_{t−(E−1)τ})
+$$
 
 #### Embedding dimensions
 
@@ -86,18 +88,22 @@ Since we are about to estimate future state based on past states, we treat it as
 
 First we need to split both embedded time series to training and test sets. Each training set describes past states and used to train a regression model. Test sets will be prediction targets and will be extracted from the end of each time series. Since temporal ordering is important, we do not shuffle the datasets before splitting them.
 
-To find a cross-mapped estimate of x<sub>t</sub>|M<sub>y</sub> we need to identify the corresponding y<sub>t</sub> in M<sub>y</sub>. Since M<sub>y</sub> is diffeomorphic to M<sub>x</sub>, the nearest neighbors around y<sub>t</sub> can be used to estimate x<sub>t</sub>. To form a bounding simplex around an E-dimensional point, we need to find E+1 nearest neighbor. We use these points (y<sub>t<sub>1</sub></sub>, y<sub>t<sub>2</sub></sub>, ... y<sub>t<sub>E+1</sub></sub>) to estimate x<sub>t</sub> as follows:
+To find a cross-mapped estimate of $x_t | M_y$ we need to identify the corresponding $y_t$ in $M_y$. Since $M_y$ is diffeomorphic to $M_x$, the nearest neighbors around $y_t$ can be used to estimate $x_t$. To form a bounding simplex around an E-dimensional point, we need to find E+1 nearest neighbor. We use these points ($y_{t_1}, y_{t_2}, ... y_{t_E+1}$) to estimate $x_t$ as follows:
 
-x̂<sub>t</sub>|M<sub>y</sub> = ∑<sup>E+1</sup><sub>i=1</sub>(w<sub>i</sub> * x<sub>t<sub>i</sub></sub>)
+$$
+x̂_t | M_y = ∑^{E+1}_{i=1}(w_i * x_{t_i})
+$$
 
-where weight w<sub>i</sub> are exponentially weighted with the Euclidean-distance of y<sub>t</sub> and its nearest neighbors:
-    
-w<sub>i</sub> = u<sub>i</sub> / ∑<sup>E+1</sup><sub>j=1</sub>u<sub>j</sub>, u<sub>i</sub> = exp(−(||y<sub>t</sub> − y<sub>t<sub>i</sub></sub>|| / ||y<sub>t</sub> - y<sub>t<sub>1</sub></sub>||)
+where weight $w_i$ are exponentially weighted with the Euclidean-distance of $y_t$ and its nearest neighbors:
+
+$$    
+w_i = u_i / ∑^{E+1}_{j=1}u_j, u_i = exp(−(||y_t − y_{t_i}|| / ||y_t - y_{t_1}||)
+$$
 
 The above estimation will be repeated for L consecutive slices of the training set of X. The list of these consecutive slices of a time series is called library, where each slice is longer than the previous, and the increment size is constant. As we discussed before, estimation is a regression problem, so we need more than one data points, that's the reason why we use libraries.
 We use these estimations to check convergence. In this case, convergence means that the estimates will improve as the library becomes larger, because the longer the library, the more precise the representation of the attractor, as the nearest neighbors of a point will be closer.
 
-The above steps were performed on to find a cross-mapped estimate of x<sub>t</sub>|M<sub>y</sub>, so they will be repeated to find the estimate of ŷ<sub>t</sub>|M<sub>x</sub> as well.
+The above steps were performed on to find a cross-mapped estimate of $x_t | M_y$, so they will be repeated to find the estimate of $ŷ_t |M_x$ as well.
 
 The next step is to calculate Pearson-correlation between L estimates of X and L values from X, and similarly, L estimates of Y and L values of Y. These correlations will be the indicators of the strength of causal relationship between X and Y.
 
