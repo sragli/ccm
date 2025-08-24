@@ -115,7 +115,6 @@ defmodule CCM do
     actual_lib_size = min(lib_size, total_points - 1)
 
     lib_indices = Enum.take_random(0..(total_points - 1), actual_lib_size)
-    library = Enum.map(lib_indices, &Enum.at(embedding, &1))
 
     adjusted_target = Enum.drop(target_series, (embedding_dim - 1) * tau)
 
@@ -125,6 +124,8 @@ defmodule CCM do
       0.0
     else
       lib_targets = Enum.map(lib_indices, &Enum.at(adjusted_target, &1))
+
+      library = Enum.map(lib_indices, &Enum.at(embedding, &1))
 
       predictions =
         Enum.map(pred_indices, fn pred_idx ->
@@ -158,24 +159,20 @@ defmodule CCM do
       |> Enum.sort_by(&elem(&1, 0))
       |> Enum.take(k)
 
-    if length(nearest) == 0 do
+    weights = calculate_weights(nearest)
+    total_weight = Enum.sum(weights)
+
+    if total_weight == 0 do
       0.0
     else
-      weights = calculate_weights(nearest)
-      total_weight = Enum.sum(weights)
+      # Weighted prediction
+      weighted_sum =
+        nearest
+        |> Enum.zip(weights)
+        |> Enum.map(fn {{_, idx}, weight} -> Enum.at(lib_targets, idx) * weight end)
+        |> Enum.sum()
 
-      if total_weight == 0 do
-        0.0
-      else
-        # Weighted prediction
-        weighted_sum =
-          nearest
-          |> Enum.zip(weights)
-          |> Enum.map(fn {{_, idx}, weight} -> Enum.at(lib_targets, idx) * weight end)
-          |> Enum.sum()
-
-        weighted_sum / total_weight
-      end
+      weighted_sum / total_weight
     end
   end
 
@@ -245,6 +242,8 @@ defmodule CCM do
       false
     end
   end
+
+  defp calculate_weights([]), do: 0.0
 
   defp calculate_weights(distances) do
     # Extract just the distance values to find minimum

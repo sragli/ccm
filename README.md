@@ -11,7 +11,7 @@ The package can be installed by adding `ccm` to your list of dependencies in `mi
 ```elixir
 def deps do
   [
-    {:ccm, "~> 0.1.1"}
+    {:ccm, "~> 0.1.2"}
   ]
 end
 ```

@@ -1,3 +1,8 @@
+## [0.1.2] - 2025-08-24
+### Changed
+- Minor performance optimisation
+- Changed the format of math expressions in README.md
+
 ## [0.1.1] - 2025-08-21
 ### Changed
 - Minor refactor
