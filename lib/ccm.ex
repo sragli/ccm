@@ -28,7 +28,16 @@ defmodule CCM do
     tau = Keyword.get(opts, :tau, 1)
     num_samples = Keyword.get(opts, :num_samples, 100)
 
-    max_lib_size = length(x_series) - (embedding_dim - 1) * tau
+    # basic validation and clamping
+    if embedding_dim < 1 or tau < 1 do
+      raise ArgumentError, "embedding_dim and tau must be >= 1"
+    end
+
+    if num_samples < 1 do
+      raise ArgumentError, "num_samples must be >= 1"
+    end
+
+    max_lib_size = max(0, length(x_series) - (embedding_dim - 1) * tau)
     lib_sizes = Keyword.get(opts, :lib_sizes, generate_lib_sizes(max_lib_size))
 
     %CCM{
@@ -62,7 +71,13 @@ defmodule CCM do
             cross_map_sample(embedding, target_series, lib_size, ccm.embedding_dim, ccm.tau)
           end)
 
-        avg_correlation = Enum.sum(correlations) / length(correlations)
+        avg_correlation =
+          if length(correlations) == 0 do
+            0.0
+          else
+            Enum.sum(correlations) / length(correlations)
+          end
+
         {lib_size, avg_correlation}
       end)
 
@@ -243,21 +258,34 @@ defmodule CCM do
     end
   end
 
-  defp calculate_weights([]), do: 0.0
+  defp calculate_weights([]), do: []
 
   defp calculate_weights(distances) do
-    # Extract just the distance values to find minimum
+    # distances is a list of {dist, idx}
     dist_values = Enum.map(distances, fn {dist, _} -> dist end)
-    min_dist = Enum.min(dist_values)
 
-    dist_values
-    |> Enum.map(fn dist ->
-      if dist < 1.0e-12 do
-        1.0
+    # If any distance is effectively zero, give full weight to exact matches
+    if Enum.any?(dist_values, fn d -> d < 1.0e-12 end) do
+      Enum.map(dist_values, fn d -> if d < 1.0e-12, do: 1.0, else: 0.0 end)
+    else
+      eps = 1.0e-8
+
+      # Inverse-distance weighting, then normalize so weights sum to 1
+      invs = Enum.map(dist_values, fn d -> 1.0 / (d + eps) end)
+      sum = Enum.sum(invs)
+
+      if sum == 0.0 do
+        Enum.map(invs, fn _ -> 0.0 end)
       else
-        # Scale by minimum distance to avoid very small weights
-        :math.exp(-dist / (min_dist + 1.0e-8))
+        Enum.map(invs, fn v -> v / sum end)
       end
-    end)
+    end
+  end
+
+  @doc false
+  # Expose a tiny wrapper for testing predict_point behavior without making the internal
+  # implementation public in the main API. Intended for test coverage only.
+  def predict_point_for_tests(query_point, library, lib_targets) do
+    predict_point(query_point, library, lib_targets)
   end
 end
