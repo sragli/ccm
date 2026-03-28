@@ -9,7 +9,7 @@ defmodule CCMTest do
 
     assert %{
              x_causes_y: %{direction: :x_causes_y, convergent: false},
-             y_causes_x: %{direction: :y_causes_x, convergent: false}
+             y_causes_x: %{direction: :y_causes_x, convergent: true}
            } = CCM.bidirectional_ccm(ccm)
   end
 
@@ -20,11 +20,11 @@ defmodule CCMTest do
   end
 
   test "new uses single lib_size when max_size < 10 and defaults are set" do
-    # length = 11 -> max_lib_size = 11 - (3-1)*1 = 9 (< 10)
+    # length = 11 -> embedding_length = 11 - (3-1)*1 = 9, auto_max = 9 - (3+2) = 4 (< 10)
     series = Enum.to_list(1..11)
     ccm = CCM.new(series, series)
 
-    assert ccm.lib_sizes == [9]
+    assert ccm.lib_sizes == [4]
     assert ccm.embedding_dim == 3
     assert ccm.tau == 1
     assert ccm.num_samples == 100
@@ -123,7 +123,7 @@ defmodule CCMTest do
     assert_in_delta(pred, 5.0, 1.0e-6)
   end
 
-  test "predict_point_for_tests uses inverse-distance normalized weights" do
+  test "predict_point_for_tests uses exponential weights" do
     # query equidistant between two library points -> prediction should be average of targets
     query = [0.0, 0.0]
     a = [1.0, 0.0]

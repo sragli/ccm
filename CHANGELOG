@@ -1,3 +1,14 @@
+## [0.2.0] - 2026-03-28
+### Fixed
+- Parameter handling got more robust, with better error messages for invalid inputs and edge cases.
+- Replaced scale-dependent absolute slope threshold with Pearson correlation > 0.5 combined with a peak cross-map skill > 0.3, matching the Sugihara et al. (2012) convergence criterion.
+
+### Changed
+- Switched from inverse-distance weighting to canonical exponential weights $w_i = \exp(-d_i / d_{\min})$ as specified in Sugihara et al. (2012).
+
+### Performance
+- Run both causal directions concurrently.
+
 ## [0.1.3] - 2025-10-21
 ### Fixed
 - Validate inputs in `CCM.new/3` (embedding_dim, tau, num_samples) and clamp computed library size for short series.

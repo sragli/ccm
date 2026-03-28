@@ -37,8 +37,13 @@ defmodule CCM do
       raise ArgumentError, "num_samples must be >= 1"
     end
 
-    max_lib_size = max(0, length(x_series) - (embedding_dim - 1) * tau)
-    lib_sizes = Keyword.get(opts, :lib_sizes, generate_lib_sizes(max_lib_size))
+    max_lib_size = Keyword.get(opts, :lib_sizes, nil)
+
+    # Maximum valid library size: must leave at least embedding_dim + 2 points for prediction
+    # (E+1 neighbours are needed; keeping E+2 free ensures at least one independent test point)
+    embedding_length = length(x_series) - (embedding_dim - 1) * tau
+    auto_max = max(0, embedding_length - (embedding_dim + 2))
+    lib_sizes = if max_lib_size, do: max_lib_size, else: generate_lib_sizes(auto_max)
 
     %CCM{
       x_series: x_series,
@@ -63,22 +68,20 @@ defmodule CCM do
 
     embedding = time_delay_embedding(source_series, ccm.embedding_dim, ccm.tau)
 
-    # Perform cross-mapping for each library size
+    # Convert to tuples once for O(1) random access in tight inner loops.
+    # adjusted_target is hoisted here so it is not recomputed on every sample.
+    embedding_arr = List.to_tuple(embedding)
+    target_arr = List.to_tuple(Enum.drop(target_series, (ccm.embedding_dim - 1) * ccm.tau))
+    total_points = tuple_size(embedding_arr)
+
     results =
       Enum.map(ccm.lib_sizes, fn lib_size ->
         correlations =
           Enum.map(1..ccm.num_samples, fn _ ->
-            cross_map_sample(embedding, target_series, lib_size, ccm.embedding_dim, ccm.tau)
+            cross_map_sample(embedding_arr, target_arr, lib_size, total_points)
           end)
 
-        avg_correlation =
-          if length(correlations) == 0 do
-            0.0
-          else
-            Enum.sum(correlations) / length(correlations)
-          end
-
-        {lib_size, avg_correlation}
+        {lib_size, Enum.sum(correlations) / ccm.num_samples}
       end)
 
     %{
@@ -92,9 +95,13 @@ defmodule CCM do
   Performs bidirectional CCM analysis.
   """
   def bidirectional_ccm(%CCM{} = ccm) do
+    # Both directions are independent, run them in parallel.
+    x_task = Task.async(fn -> cross_map(ccm, :x_causes_y) end)
+    y_task = Task.async(fn -> cross_map(ccm, :y_causes_x) end)
+
     %{
-      x_causes_y: cross_map(ccm, :x_causes_y),
-      y_causes_x: cross_map(ccm, :y_causes_x)
+      x_causes_y: Task.await(x_task, :infinity),
+      y_causes_x: Task.await(y_task, :infinity)
     }
   end
 
@@ -103,60 +110,60 @@ defmodule CCM do
   defp generate_lib_sizes(max_size) do
     step = max(2, div(max_size, 20))
 
-    max_size
-    |> div(10)
-    |> max(5)
-    |> Stream.iterate(&(&1 + step))
-    |> Stream.take_while(&(&1 <= max_size))
-    |> Enum.to_list()
+    sizes =
+      max_size
+      |> div(10)
+      |> max(5)
+      |> Stream.iterate(&(&1 + step))
+      |> Stream.take_while(&(&1 <= max_size))
+      |> Enum.to_list()
+
+    if List.last(sizes) == max_size, do: sizes, else: sizes ++ [max_size]
   end
 
   defp time_delay_embedding(series, embedding_dim, tau) do
     max_index = length(series) - (embedding_dim - 1) * tau
 
-    for i <- 0..(max_index - 1) do
-      for j <- 0..(embedding_dim - 1) do
-        Enum.at(series, i + j * tau)
+    if max_index <= 0 do
+      []
+    else
+      for i <- 0..(max_index - 1) do
+        for j <- 0..(embedding_dim - 1) do
+          Enum.at(series, i + j * tau)
+        end
       end
     end
   end
 
-  defp cross_map_sample(embedding, _, lib_size, _, _) when lib_size >= length(embedding),
-    do: 0.0
+  defp cross_map_sample(_embedding, _target, lib_size, total_points)
+       when lib_size >= total_points,
+       do: 0.0
 
-  defp cross_map_sample(embedding, target_series, lib_size, embedding_dim, tau) do
-    total_points = length(embedding)
-
+  defp cross_map_sample(embedding, target, lib_size, total_points) do
     actual_lib_size = min(lib_size, total_points - 1)
 
     lib_indices = Enum.take_random(0..(total_points - 1), actual_lib_size)
 
-    adjusted_target = Enum.drop(target_series, (embedding_dim - 1) * tau)
-
-    pred_indices = Enum.to_list(0..(total_points - 1)) -- lib_indices
-
-    if length(adjusted_target) < total_points or length(pred_indices) < 2 do
+    if tuple_size(target) < total_points or total_points - actual_lib_size < 2 do
       0.0
     else
-      lib_targets = Enum.map(lib_indices, &Enum.at(adjusted_target, &1))
+      # MapSet membership check is O(1) vs O(n) for list `--`
+      lib_set = MapSet.new(lib_indices)
 
-      library = Enum.map(lib_indices, &Enum.at(embedding, &1))
+      library = Enum.map(lib_indices, &elem(embedding, &1))
+      lib_targets = Enum.map(lib_indices, &elem(target, &1))
 
       predictions =
-        Enum.map(pred_indices, fn pred_idx ->
-          query_point = Enum.at(embedding, pred_idx)
-          actual_value = Enum.at(adjusted_target, pred_idx)
-          predicted_value = predict_point(query_point, library, lib_targets)
-          {actual_value, predicted_value}
-        end)
+        for idx <- 0..(total_points - 1), not MapSet.member?(lib_set, idx) do
+          {elem(target, idx), predict_point(elem(embedding, idx), library, lib_targets)}
+        end
 
       correlation(predictions)
     end
   end
 
-  defp predict_point(query_point, library, lib_targets)
-       when length(library) < 1 or length(lib_targets) == 0 or length(query_point) == 0,
-       do: 0.0
+  defp predict_point(_query_point, [], _lib_targets), do: 0.0
+  defp predict_point([], _library, _lib_targets), do: 0.0
 
   defp predict_point(query_point, library, lib_targets) do
     # Use E+1 neighbors
@@ -202,29 +209,22 @@ defmodule CCM do
   defp correlation(predictions) when length(predictions) < 2, do: 0.0
 
   defp correlation(predictions) do
+    n = length(predictions)
     {actuals, predicted} = Enum.unzip(predictions)
 
-    actual_mean = Enum.sum(actuals) / length(actuals)
-    pred_mean = Enum.sum(predicted) / length(predicted)
+    actual_mean = Enum.sum(actuals) / n
+    pred_mean = Enum.sum(predicted) / n
 
-    numerator =
-      actuals
-      |> Enum.zip(predicted)
-      |> Enum.map(fn {a, p} -> (a - actual_mean) * (p - pred_mean) end)
-      |> Enum.sum()
+    # Single pass over both lists to compute covariance and both variances.
+    {cov, var_a, var_p} =
+      Enum.reduce(Enum.zip(actuals, predicted), {0.0, 0.0, 0.0}, fn {a, p}, {c, va, vp} ->
+        da = a - actual_mean
+        dp = p - pred_mean
+        {c + da * dp, va + da * da, vp + dp * dp}
+      end)
 
-    actual_var =
-      actuals
-      |> Enum.map(fn a -> (a - actual_mean) * (a - actual_mean) end)
-      |> Enum.sum()
-
-    pred_var =
-      predicted
-      |> Enum.map(fn p -> (p - pred_mean) * (p - pred_mean) end)
-      |> Enum.sum()
-
-    denominator = :math.sqrt(actual_var * pred_var)
-    if denominator != 0, do: numerator / denominator, else: 0.0
+    denominator = :math.sqrt(var_a * var_p)
+    if denominator != 0, do: cov / denominator, else: 0.0
   end
 
   defp convergent?(results) when length(results) < 3, do: false
@@ -233,28 +233,34 @@ defmodule CCM do
     {lib_sizes, correlations} = Enum.unzip(results)
 
     n = length(results)
-    sum_x = Enum.sum(lib_sizes)
-    sum_y = Enum.sum(correlations)
+    mean_x = Enum.sum(lib_sizes) / n
+    mean_y = Enum.sum(correlations) / n
 
-    sum_xy =
+    cov =
       lib_sizes
       |> Enum.zip(correlations)
-      |> Enum.map(fn {x, y} -> x * y end)
+      |> Enum.map(fn {x, y} -> (x - mean_x) * (y - mean_y) end)
       |> Enum.sum()
 
-    sum_x2 =
+    var_x =
       lib_sizes
-      |> Enum.map(fn x -> x * x end)
+      |> Enum.map(fn x -> (x - mean_x) * (x - mean_x) end)
       |> Enum.sum()
 
-    denominator = n * sum_x2 - sum_x * sum_x
+    var_y =
+      correlations
+      |> Enum.map(fn y -> (y - mean_y) * (y - mean_y) end)
+      |> Enum.sum()
 
-    if denominator != 0 do
-      slope = (n * sum_xy - sum_x * sum_y) / denominator
-      # Positive slope indicates convergence
-      slope > 0.001
-    else
+    denom = :math.sqrt(var_x * var_y)
+
+    if denom == 0 do
       false
+    else
+      # Pearson r > 0.5 signals a positive trend; additionally require the peak
+      # cross-map skill to exceed 0.3 so that low-but-weakly-increasing noise
+      # is not misclassified as convergent (Sugihara et al. 2012 criterion).
+      cov / denom > 0.5 and Enum.max(correlations) > 0.3
     end
   end
 
@@ -263,21 +269,20 @@ defmodule CCM do
   defp calculate_weights(distances) do
     # distances is a list of {dist, idx}
     dist_values = Enum.map(distances, fn {dist, _} -> dist end)
+    min_dist = Enum.min(dist_values)
 
-    # If any distance is effectively zero, give full weight to exact matches
-    if Enum.any?(dist_values, fn d -> d < 1.0e-12 end) do
+    # Sugihara et al. (2012) exponential weighting: w_i = exp(-d_i / d_min)
+    # If any distance is effectively zero, give full weight to exact matches only
+    if min_dist < 1.0e-12 do
       Enum.map(dist_values, fn d -> if d < 1.0e-12, do: 1.0, else: 0.0 end)
     else
-      eps = 1.0e-8
-
-      # Inverse-distance weighting, then normalize so weights sum to 1
-      invs = Enum.map(dist_values, fn d -> 1.0 / (d + eps) end)
-      sum = Enum.sum(invs)
+      weights = Enum.map(dist_values, fn d -> :math.exp(-d / min_dist) end)
+      sum = Enum.sum(weights)
 
       if sum == 0.0 do
-        Enum.map(invs, fn _ -> 0.0 end)
+        Enum.map(weights, fn _ -> 0.0 end)
       else
-        Enum.map(invs, fn v -> v / sum end)
+        Enum.map(weights, fn w -> w / sum end)
       end
     end
   end
