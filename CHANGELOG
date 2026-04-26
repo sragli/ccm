@@ -1,3 +1,11 @@
+## [1.0.0] - 2026-04-26
+### Added
+- `CCM.optimal_embedding_dim/2` — determines the best embedding dimension for a time series
+  using simplex projection with leave-one-out (LOO) cross-validation (Sugihara & May, 1990).
+
+### Changed
+- Expanded `@moduledoc` and `@doc` comments.
+
 ## [0.2.0] - 2026-03-28
 ### Fixed
 - Parameter handling got more robust, with better error messages for invalid inputs and edge cases.

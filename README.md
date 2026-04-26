@@ -11,7 +11,7 @@ The package can be installed by adding `ccm` to your list of dependencies in `mi
 ```elixir
 def deps do
   [
-    {:ccm, "~> 0.1.3"}
+    {:ccm, "~> 1.0.0"}
   ]
 end
 ```
@@ -27,8 +27,9 @@ end
 ## Main Functions
 
 * `CCM.new/3` - Creates a new CCM analysis structure
-* `cross_map/2` - Performs unidirectional CCM analysis
-* `bidirectional_ccm/1` - Tests causality in both directions
+* `CCM.cross_map/2` - Performs unidirectional CCM analysis
+* `CCM.bidirectional_ccm/1` - Tests causality in both directions
+* `CCM.optimal_embedding_dim/2` - Finds the optimal embedding dimension
 
 ## Usage
 
@@ -36,9 +37,18 @@ end
 # Generate test data
 {x_series, y_series} = CoupledLogisticMapsGenerator.run(300, 0.15)
 
-# Perform analysis
-ccm = CCM.new(x_series, y_series, embedding_dim: 3, tau: 1, num_samples: 50)
-results = CCM.bidirectional_ccm(ccm)
+# (Optional) select the best embedding dimension via simplex LOO cross-validation
+%{optimal_dim: e, skills: skills} = CCM.optimal_embedding_dim(x_series)
+IO.inspect(skills)  # [{1, rho1}, {2, rho2}, ...]
+
+# Build the CCM struct with the chosen (or a manual) embedding dimension
+ccm = CCM.new(x_series, y_series, embedding_dim: e, tau: 1, num_samples: 50)
+
+# Test causality in both directions concurrently
+%{x_causes_y: fwd, y_causes_x: rev} = CCM.bidirectional_ccm(ccm)
+
+IO.inspect(fwd.convergent)  # true => X drives Y
+IO.inspect(rev.convergent)  # false => Y does not drive X
 ```
 
 ## How CCM Works

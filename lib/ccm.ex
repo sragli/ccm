@@ -2,6 +2,27 @@ defmodule CCM do
   @moduledoc """
   Convergent Cross Mapping (CCM) implementation for detecting causality in coupled nonlinear
   dynamical systems.
+
+  CCM is a nonlinear time-series method introduced by Sugihara et al. (2012) that detects
+  causal relationships between variables without requiring a parametric model.  The key
+  insight is that if variable X causally influences variable Y, then the historical values
+  of Y contain enough information to recover the state of X — and this recovery improves
+  as more data are added (i.e. the cross-map skill *converges* with library size).
+
+  ## Typical workflow
+
+      # 1. Build a CCM struct for the two time series
+      ccm = CCM.new(x_series, y_series, embedding_dim: 3, tau: 1)
+
+      # 2. (Optional) select the best embedding dimension automatically
+      %{optimal_dim: e} = CCM.optimal_embedding_dim(x_series)
+      ccm = CCM.new(x_series, y_series, embedding_dim: e)
+
+      # 3. Test causality in both directions simultaneously
+      %{x_causes_y: fwd, y_causes_x: rev} = CCM.bidirectional_ccm(ccm)
+
+      fwd.convergent  #=> true / false
+      rev.convergent  #=> true / false
   """
 
   defstruct [:x_series, :y_series, :embedding_dim, :tau, :lib_sizes, :num_samples]
@@ -10,12 +31,33 @@ defmodule CCM do
   Creates a new CCM analysis structure.
 
   ## Parameters
-  - x_series: List of numeric values for variable X
-  - y_series: List of numeric values for variable Y
-  - embedding_dim: Embedding dimension (default: 3)
-  - tau: Time delay (default: 1)
-  - lib_sizes: List of library sizes to test (default: auto-generated)
-  - num_samples: Number of bootstrap samples (default: 100)
+  - `x_series` – list of numeric values for variable X
+  - `y_series` – list of numeric values for variable Y (must be the same length as `x_series`)
+  - `opts`     – keyword list of options:
+    - `:embedding_dim` – embedding dimension E used to reconstruct the attractor (default: `3`).
+      Use `optimal_embedding_dim/2` to choose this automatically.
+    - `:tau`           – time delay between successive embedding coordinates (default: `1`).
+      Values > 1 are useful when the time series is oversampled.
+    - `:lib_sizes`     – explicit list of library sizes to evaluate.  When omitted, sizes are
+      generated automatically from a tenth of the usable length up to the maximum valid size.
+    - `:num_samples`   – number of random bootstrap sub-library samples averaged at each
+      library size (default: `100`).  Higher values reduce variance at the cost of runtime.
+
+  ## Returns
+  A `%CCM{}` struct ready to be passed to `cross_map/2` or `bidirectional_ccm/1`.
+
+  ## Raises
+  - `ArgumentError` if `x_series` and `y_series` have different lengths.
+  - `ArgumentError` if `:embedding_dim` or `:tau` is less than 1.
+  - `ArgumentError` if `:num_samples` is less than 1.
+
+  ## Examples
+
+      iex> CCM.new([1, 2, 3, 4, 5], [5, 4, 3, 2, 1]) |> Map.get(:embedding_dim)
+      3
+
+      iex> CCM.new([1, 2, 3], [1, 2], []) |> Map.get(:embedding_dim)
+      ** (ArgumentError) x_series and y_series must have the same length
   """
   def new(x_series, y_series, opts \\ [])
 
@@ -56,8 +98,27 @@ defmodule CCM do
   end
 
   @doc """
-  Performs CCM analysis to test if X causes Y.
-  Returns a map with correlation coefficients for each library size.
+  Performs CCM analysis for a single causal direction.
+
+  For each library size in `ccm.lib_sizes`, `num_samples` random sub-libraries are drawn.
+  Each sub-library is used to reconstruct the source attractor and predict the target
+  variable via simplex projection.  The mean Pearson correlation across samples is
+  recorded as the cross-map skill for that library size.  A positive trend in skill
+  with increasing library size is the hallmark of genuine CCM causality (*convergence*).
+
+  ## Parameters
+  - `ccm`       – a `%CCM{}` struct produced by `new/3`
+  - `direction` – atom indicating the causal direction to test:
+    - `:x_causes_y` (default) – tests whether X drives Y by cross-mapping Y's manifold
+      to recover X
+    - `:y_causes_x` – tests whether Y drives X by cross-mapping X's manifold to recover Y
+
+  ## Returns
+  A map with:
+  - `:direction`  – the direction atom passed in
+  - `:results`    – list of `{library_size, mean_correlation}` tuples, one per lib size
+  - `:convergent` – `true` if the skill shows a significant positive trend and the peak
+    skill exceeds 0.3 (Sugihara et al. 2012 criterion), `false` otherwise
   """
   def cross_map(%CCM{} = ccm, direction \\ :x_causes_y) do
     {source_series, target_series} =
@@ -92,7 +153,73 @@ defmodule CCM do
   end
 
   @doc """
-  Performs bidirectional CCM analysis.
+  Determines the optimal embedding dimension for a time series using simplex projection
+  with leave-one-out (LOO) cross-validation (Sugihara & May, 1990).
+
+  For each candidate embedding dimension from 1 to `max_dim`, the series is embedded
+  with the given time delay `tau`, and each point is predicted from E+1 nearest neighbours
+  drawn from the rest of the library (LOO).  The Pearson correlation between predictions
+  and actuals is used as the skill score.  The embedding dimension that maximises this
+  skill is returned as the optimal choice.
+
+  ## Parameters
+  - `series`  – list of numeric values
+  - `opts`    – keyword list of options:
+    - `:tau`     – time delay (default: 1)
+    - `:max_dim` – largest embedding dimension to test (default: 10)
+
+  ## Returns
+  A map with:
+  - `:optimal_dim` – the embedding dimension with the highest LOO skill
+  - `:skills`      – list of `{embedding_dim, skill}` tuples for every dimension tested
+
+  ## Examples
+
+      iex> {x, _y} = CoupledLogisticMapsGenerator.run(200, 0.3)
+      iex> %{optimal_dim: e} = CCM.optimal_embedding_dim(x)
+      iex> e in 1..10
+      true
+  """
+  def optimal_embedding_dim(series, opts \\ []) do
+    tau = Keyword.get(opts, :tau, 1)
+    max_dim = Keyword.get(opts, :max_dim, 10)
+
+    if tau < 1, do: raise(ArgumentError, "tau must be >= 1")
+    if max_dim < 1, do: raise(ArgumentError, "max_dim must be >= 1")
+
+    skills =
+      Enum.map(1..max_dim, fn e ->
+        {e, simplex_loo_skill(series, e, tau)}
+      end)
+
+    {optimal_dim, _best_skill} = Enum.max_by(skills, &elem(&1, 1))
+
+    %{optimal_dim: optimal_dim, skills: skills}
+  end
+
+  @doc """
+  Performs CCM analysis in both causal directions concurrently.
+
+  Runs `:x_causes_y` and `:y_causes_x` as parallel `Task`s and collects the results.
+  This is the recommended entry point for a full causality analysis because genuine
+  unidirectional causality produces convergence in only one direction, while bidirectional
+  coupling produces convergence in both.
+
+  ## Parameters
+  - `ccm` – a `%CCM{}` struct produced by `new/3`
+
+  ## Returns
+  A map with two keys, each containing the result map from `cross_map/2`:
+  - `:x_causes_y` – result for the X → Y direction
+  - `:y_causes_x` – result for the Y → X direction
+
+  ## Examples
+
+      iex> {x, y} = CoupledLogisticMapsGenerator.run(300, 0.15)
+      iex> ccm = CCM.new(x, y, embedding_dim: 3, tau: 1, num_samples: 50)
+      iex> %{x_causes_y: fwd, y_causes_x: rev} = CCM.bidirectional_ccm(ccm)
+      iex> is_boolean(fwd.convergent) and is_boolean(rev.convergent)
+      true
   """
   def bidirectional_ccm(%CCM{} = ccm) do
     # Both directions are independent, run them in parallel.
@@ -103,6 +230,30 @@ defmodule CCM do
       x_causes_y: Task.await(x_task, :infinity),
       y_causes_x: Task.await(y_task, :infinity)
     }
+  end
+
+  defp simplex_loo_skill(series, embedding_dim, tau) do
+    embedding = time_delay_embedding(series, embedding_dim, tau)
+    adjusted = Enum.drop(series, (embedding_dim - 1) * tau)
+    n = length(embedding)
+
+    # Need at least E+2 points so that LOO leaves E+1 neighbours available
+    if n < embedding_dim + 2 do
+      0.0
+    else
+      embedding_arr = List.to_tuple(embedding)
+      target_arr = List.to_tuple(adjusted)
+
+      predictions =
+        for i <- 0..(n - 1) do
+          library = for j <- 0..(n - 1), j != i, do: elem(embedding_arr, j)
+          lib_targets = for j <- 0..(n - 1), j != i, do: elem(target_arr, j)
+          predicted = predict_point(elem(embedding_arr, i), library, lib_targets)
+          {elem(target_arr, i), predicted}
+        end
+
+      correlation(predictions)
+    end
   end
 
   defp generate_lib_sizes(max_size) when max_size < 10, do: [max_size]

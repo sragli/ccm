@@ -135,4 +135,61 @@ defmodule CCMTest do
 
     assert_in_delta(pred, 15.0, 1.0e-6)
   end
+
+  test "optimal_embedding_dim returns a map with expected keys" do
+    {x, _y} = CoupledLogisticMapsGenerator.run(200, 0.3)
+
+    result = CCM.optimal_embedding_dim(x)
+
+    assert Map.has_key?(result, :optimal_dim)
+    assert Map.has_key?(result, :skills)
+    assert is_integer(result.optimal_dim)
+    assert result.optimal_dim in 1..10
+    assert length(result.skills) == 10
+
+    for {e, skill} <- result.skills do
+      assert is_integer(e)
+      assert is_float(skill)
+    end
+  end
+
+  test "optimal_embedding_dim respects max_dim option" do
+    {x, _y} = CoupledLogisticMapsGenerator.run(100, 0.2)
+
+    result = CCM.optimal_embedding_dim(x, max_dim: 5)
+
+    assert length(result.skills) == 5
+    assert result.optimal_dim in 1..5
+  end
+
+  test "optimal_embedding_dim respects tau option" do
+    {x, _y} = CoupledLogisticMapsGenerator.run(150, 0.2)
+
+    result = CCM.optimal_embedding_dim(x, tau: 2, max_dim: 5)
+
+    assert length(result.skills) == 5
+    assert result.optimal_dim in 1..5
+  end
+
+  test "optimal_embedding_dim raises for invalid tau" do
+    assert_raise ArgumentError, fn ->
+      CCM.optimal_embedding_dim([1.0, 2.0, 3.0], tau: 0)
+    end
+  end
+
+  test "optimal_embedding_dim raises for invalid max_dim" do
+    assert_raise ArgumentError, fn ->
+      CCM.optimal_embedding_dim([1.0, 2.0, 3.0], max_dim: 0)
+    end
+  end
+
+  test "optimal_embedding_dim handles series too short for high E gracefully" do
+    # 8 points; high E will produce 0.0 skill but should not crash
+    short = Enum.map(1..8, &(&1 * 1.0))
+
+    result = CCM.optimal_embedding_dim(short, max_dim: 6)
+
+    assert is_integer(result.optimal_dim)
+    for {_e, skill} <- result.skills, do: assert(is_float(skill))
+  end
 end
