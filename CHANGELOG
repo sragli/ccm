@@ -1,4 +1,4 @@
-## [Unreleased]
+## [2.0.0] - 2026-06-14
 ### Changed
 - Align cross-mapping with `skccm`: split embedded series chronologically, evaluate training-library prefixes, predict target embedding vectors, and average coordinate correlations. The default training fraction is 75%.
 - Remove bootstrap sampling; passing `num_samples` now raises an `ArgumentError`.
