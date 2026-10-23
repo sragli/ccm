@@ -1,7 +1,11 @@
+## [Unreleased]
+### Changed
+- Align cross-mapping with `skccm`: split embedded series chronologically, evaluate training-library prefixes, predict target embedding vectors, and average coordinate correlations. The default training fraction is 75%.
+- Remove bootstrap sampling; passing `num_samples` now raises an `ArgumentError`.
+
 ## [1.0.0] - 2026-04-26
 ### Added
-- `CCM.optimal_embedding_dim/2` — determines the best embedding dimension for a time series
-  using simplex projection with leave-one-out (LOO) cross-validation (Sugihara & May, 1990).
+- `CCM.optimal_embedding_dim/2` — determines the best embedding dimension for a time series using simplex projection with leave-one-out (LOO) cross-validation (Sugihara & May, 1990).
 
 ### Changed
 - Expanded `@moduledoc` and `@doc` comments.

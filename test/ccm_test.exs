@@ -5,12 +5,24 @@ defmodule CCMTest do
   test "computes correct results" do
     {x_series, y_series} = CoupledLogisticMapsGenerator.run(300, 0.15)
 
-    ccm = CCM.new(x_series, y_series, embedding_dim: 3, tau: 1, num_samples: 50)
+    ccm = CCM.new(x_series, y_series, embedding_dim: 3, tau: 1)
 
     assert %{
              x_causes_y: %{direction: :x_causes_y, convergent: false},
              y_causes_x: %{direction: :y_causes_x, convergent: true}
            } = CCM.bidirectional_ccm(ccm)
+  end
+
+  test "new/3 validates the train/test split and rejects bootstrap sampling" do
+    series = Enum.to_list(1..20)
+
+    assert_raise ArgumentError, ~r/train_percent/, fn ->
+      CCM.new(series, series, train_percent: 1.0)
+    end
+
+    assert_raise ArgumentError, ~r/num_samples is unsupported/, fn ->
+      CCM.new(series, series, num_samples: 10)
+    end
   end
 
   test "new/3 raises when series lengths differ" do
@@ -19,15 +31,14 @@ defmodule CCMTest do
     end
   end
 
-  test "new uses single lib_size when max_size < 10 and defaults are set" do
-    # length = 11 -> embedding_length = 11 - (3-1)*1 = 9, auto_max = 9 - (3+2) = 4 (< 10)
+  test "new defaults to a 75 percent training split" do
     series = Enum.to_list(1..11)
     ccm = CCM.new(series, series)
 
-    assert ccm.lib_sizes == [4]
+    assert ccm.train_percent == 0.75
+    assert ccm.lib_sizes == [6]
     assert ccm.embedding_dim == 3
     assert ccm.tau == 1
-    assert ccm.num_samples == 100
   end
 
   test "cross_map returns expected shape and types" do
@@ -35,7 +46,7 @@ defmodule CCMTest do
     # y is a linear function of x (deterministic relationship)
     y = Enum.map(x, &(&1 * 2))
 
-    ccm = CCM.new(x, y, num_samples: 5, lib_sizes: [5, 10, 15])
+    ccm = CCM.new(x, y, lib_sizes: [5, 10, 15])
 
     result = CCM.cross_map(ccm)
 
@@ -49,22 +60,21 @@ defmodule CCMTest do
     end
   end
 
-  test "cross_map returns zero correlation when lib_size >= embedding length" do
-    # small series where embedding length is 4
-    series = Enum.to_list(1..6)
-    # choose a lib_size bigger than embedding length
-    ccm = CCM.new(series, series, lib_sizes: [10], num_samples: 3)
+  test "cross_map caps a library size at the training set length" do
+    series = Enum.to_list(1..10)
+    ccm = CCM.new(series, series, embedding_dim: 1, lib_sizes: [20])
 
     %{results: results} = CCM.cross_map(ccm)
 
-    assert results == [{10, 0.0}]
+    assert [{20, correlation}] = results
+    assert correlation < -0.9
   end
 
   test "bidirectional_ccm returns both direction maps" do
     x = Enum.to_list(1..30)
     y = Enum.map(x, &(&1 + 1))
 
-    ccm = CCM.new(x, y, num_samples: 3)
+    ccm = CCM.new(x, y)
 
     out = CCM.bidirectional_ccm(ccm)
 
@@ -79,7 +89,7 @@ defmodule CCMTest do
     # series too short to build embeddings with embedding_dim 3 and tau 1
     short = [1, 2, 3]
 
-    ccm = CCM.new(short, short, embedding_dim: 3, tau: 1, lib_sizes: [1], num_samples: 2)
+    ccm = CCM.new(short, short, embedding_dim: 3, tau: 1, lib_sizes: [1])
 
     # cross_map should run but produce results (likely zeros) without crashing
     res = CCM.cross_map(ccm)
@@ -89,7 +99,7 @@ defmodule CCMTest do
   test "lib_size zero and empty library predictions" do
     series = Enum.to_list(1..20)
     # lib_size 0 should lead to no library points -> predict_point should return 0
-    ccm = CCM.new(series, series, lib_sizes: [0], num_samples: 3)
+    ccm = CCM.new(series, series, lib_sizes: [0])
 
     %{results: results} = CCM.cross_map(ccm)
     # correlation should be 0.0 when predictions are not possible
@@ -101,7 +111,7 @@ defmodule CCMTest do
     x = Enum.map(1..30, fn i -> if rem(i, 3) == 0, do: 1.0, else: i * 1.0 end)
     y = Enum.map(x, &(&1 + 0.5))
 
-    ccm = CCM.new(x, y, num_samples: 5, lib_sizes: [5, 8])
+    ccm = CCM.new(x, y, lib_sizes: [5, 8])
 
     result = CCM.cross_map(ccm)
 

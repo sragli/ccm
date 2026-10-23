@@ -22,7 +22,7 @@ end
 * Cross-mapping - Predicts one variable from another's reconstructed state space
 * Convergence testing - Checks if prediction skill improves with library size
 * Bidirectional analysis - Tests causality in both directions
-* Bootstrap sampling - Improves statistical reliability
+* Chronological train/test split - Keeps held-out samples separate from the training library
 
 ## Main Functions
 
@@ -42,7 +42,7 @@ end
 IO.inspect(skills)  # [{1, rho1}, {2, rho2}, ...]
 
 # Build the CCM struct with the chosen (or a manual) embedding dimension
-ccm = CCM.new(x_series, y_series, embedding_dim: e, tau: 1, num_samples: 50)
+ccm = CCM.new(x_series, y_series, embedding_dim: e, tau: 1)
 
 # Test causality in both directions concurrently
 %{x_causes_y: fwd, y_causes_x: rev} = CCM.bidirectional_ccm(ccm)
@@ -50,6 +50,8 @@ ccm = CCM.new(x_series, y_series, embedding_dim: e, tau: 1, num_samples: 50)
 IO.inspect(fwd.convergent)  # true => X drives Y
 IO.inspect(rev.convergent)  # false => Y does not drive X
 ```
+
+By default, `CCM.new/3` uses the first 75% of the embedded points for training and the remaining 25% for testing. Set `train_percent:` to change the split; `lib_sizes:` selects training-library prefixes to evaluate. Each reported skill is the mean correlation across the embedded coordinates. The `convergent` field is a convenience heuristic.
 
 ## How CCM Works
 
@@ -121,6 +123,7 @@ The best indication of a causal relationship is that the Forecast Skill of one (
 
 ## Citations
 
+* Cortale, N. [Scikit Convergent Cross Mapping (skccm)](https://github.com/nickc1/skccm/tree/35fdd7ab7fa789eb893558c1689fdaabc10d11f6). GitHub repository, implementation reference.
 * Haefliger, A., & Hirsch, M. (1963). On the existence and classification of differentiable embeddings. Topology, 2, 129-135.
 * Granger, C. W. J. (1969). Investigating Causal Relations by Econometric Models and Cross-spectral Methods. Econometrica. 37 (3): 424–438. doi:10.2307/1912791. JSTOR 1912791.
 * Takens F. (1981) Detecting strange attractors in turbulence. In: Rand D., Young LS. (eds) Dynamical Systems and Turbulence, Warwick 1980. Lecture Notes in * Sugihara, George; May M., Robert. (19 April 1990). Nonlinear forecasting as a way of distinguishing chaos from measurement error in time series. Nature, Vol. 344, No. 6268, pp. 734-741

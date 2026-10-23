@@ -53,7 +53,7 @@ Now let's perform CCM analysis on this data:
 
 ```elixir
 # Create CCM analysis
-ccm = CCM.new(x_series, y_series, embedding_dim: 3, tau: 1, num_samples: 30)
+ccm = CCM.new(x_series, y_series, embedding_dim: 3, tau: 1)
 
 # Perform bidirectional CCM analysis
 IO.puts("Performing CCM analysis...")
@@ -148,7 +148,7 @@ Kino.Control.stream(analyze_button)
       |> Enum.map(&String.to_float/1)
       
       if length(x_data) == length(y_data) and length(x_data) >= 10 do
-        ccm = CCM.new(x_data, y_data, embedding_dim: 3, tau: 1, num_samples: 20)
+        ccm = CCM.new(x_data, y_data, embedding_dim: 3, tau: 1)
         results = CCM.bidirectional_ccm(ccm)
         
         IO.puts("=== Custom Data CCM Analysis ===")

@@ -25,7 +25,7 @@ defmodule CCM do
       rev.convergent  #=> true / false
   """
 
-  defstruct [:x_series, :y_series, :embedding_dim, :tau, :lib_sizes, :num_samples]
+  defstruct [:x_series, :y_series, :embedding_dim, :tau, :lib_sizes, :train_percent]
 
   @doc """
   Creates a new CCM analysis structure.
@@ -38,10 +38,10 @@ defmodule CCM do
       Use `optimal_embedding_dim/2` to choose this automatically.
     - `:tau`           – time delay between successive embedding coordinates (default: `1`).
       Values > 1 are useful when the time series is oversampled.
+    - `:train_percent` – fraction of the embedded series used as the training library
+      (default: `0.75`, matching `skccm`).
     - `:lib_sizes`     – explicit list of library sizes to evaluate.  When omitted, sizes are
-      generated automatically from a tenth of the usable length up to the maximum valid size.
-    - `:num_samples`   – number of random bootstrap sub-library samples averaged at each
-      library size (default: `100`).  Higher values reduce variance at the cost of runtime.
+      generated automatically up to the training-library length.
 
   ## Returns
   A `%CCM{}` struct ready to be passed to `cross_map/2` or `bidirectional_ccm/1`.
@@ -49,7 +49,7 @@ defmodule CCM do
   ## Raises
   - `ArgumentError` if `x_series` and `y_series` have different lengths.
   - `ArgumentError` if `:embedding_dim` or `:tau` is less than 1.
-  - `ArgumentError` if `:num_samples` is less than 1.
+  - `ArgumentError` if `:train_percent` is not between 0 and 1.
 
   ## Examples
 
@@ -68,24 +68,23 @@ defmodule CCM do
   def new(x_series, y_series, opts) do
     embedding_dim = Keyword.get(opts, :embedding_dim, 3)
     tau = Keyword.get(opts, :tau, 1)
-    num_samples = Keyword.get(opts, :num_samples, 100)
+    train_percent = Keyword.get(opts, :train_percent, 0.75)
 
-    # basic validation and clamping
+    if Keyword.has_key?(opts, :num_samples) do
+      raise ArgumentError, "num_samples is unsupported; CCM uses a chronological train/test split"
+    end
+
     if embedding_dim < 1 or tau < 1 do
       raise ArgumentError, "embedding_dim and tau must be >= 1"
     end
 
-    if num_samples < 1 do
-      raise ArgumentError, "num_samples must be >= 1"
+    if not is_number(train_percent) or train_percent <= 0 or train_percent >= 1 do
+      raise ArgumentError, "train_percent must be greater than 0 and less than 1"
     end
 
-    max_lib_size = Keyword.get(opts, :lib_sizes, nil)
-
-    # Maximum valid library size: must leave at least embedding_dim + 2 points for prediction
-    # (E+1 neighbours are needed; keeping E+2 free ensures at least one independent test point)
     embedding_length = length(x_series) - (embedding_dim - 1) * tau
-    auto_max = max(0, embedding_length - (embedding_dim + 2))
-    lib_sizes = if max_lib_size, do: max_lib_size, else: generate_lib_sizes(auto_max)
+    train_length = trunc(embedding_length * train_percent)
+    lib_sizes = Keyword.get(opts, :lib_sizes) || generate_lib_sizes(train_length)
 
     %CCM{
       x_series: x_series,
@@ -93,18 +92,19 @@ defmodule CCM do
       embedding_dim: embedding_dim,
       tau: tau,
       lib_sizes: lib_sizes,
-      num_samples: num_samples
+      train_percent: train_percent
     }
   end
 
   @doc """
   Performs CCM analysis for a single causal direction.
 
-  For each library size in `ccm.lib_sizes`, `num_samples` random sub-libraries are drawn.
-  Each sub-library is used to reconstruct the source attractor and predict the target
-  variable via simplex projection.  The mean Pearson correlation across samples is
-  recorded as the cross-map skill for that library size.  A positive trend in skill
-  with increasing library size is the hallmark of genuine CCM causality (*convergence*).
+  Both time series are embedded and split chronologically. The first `train_percent`
+  of each embedded series forms the training library; remaining points are held out
+  for testing. For each library size, the first points of the training set are used.
+  Neighbours are found on the source manifold and their weights are applied to the
+  corresponding embedded vectors of the target series. The skill is the mean Pearson
+  correlation across embedding coordinates, matching `skccm`.
 
   ## Parameters
   - `ccm`       – a `%CCM{}` struct produced by `new/3`
@@ -127,22 +127,24 @@ defmodule CCM do
         :y_causes_x -> {ccm.x_series, ccm.y_series}
       end
 
-    embedding = time_delay_embedding(source_series, ccm.embedding_dim, ccm.tau)
-
-    # Convert to tuples once for O(1) random access in tight inner loops.
-    # adjusted_target is hoisted here so it is not recomputed on every sample.
-    embedding_arr = List.to_tuple(embedding)
-    target_arr = List.to_tuple(Enum.drop(target_series, (ccm.embedding_dim - 1) * ccm.tau))
-    total_points = tuple_size(embedding_arr)
+    source_embedding = time_delay_embedding(source_series, ccm.embedding_dim, ccm.tau)
+    target_embedding = time_delay_embedding(target_series, ccm.embedding_dim, ccm.tau)
+    train_length = trunc(length(source_embedding) * ccm.train_percent)
+    {source_train, source_test} = Enum.split(source_embedding, train_length)
+    {target_train, target_test} = Enum.split(target_embedding, train_length)
 
     results =
       Enum.map(ccm.lib_sizes, fn lib_size ->
-        correlations =
-          Enum.map(1..ccm.num_samples, fn _ ->
-            cross_map_sample(embedding_arr, target_arr, lib_size, total_points)
-          end)
+        skill =
+          cross_map_sample(
+            source_train,
+            target_train,
+            source_test,
+            target_test,
+            lib_size
+          )
 
-        {lib_size, Enum.sum(correlations) / ccm.num_samples}
+        {lib_size, skill}
       end)
 
     %{
@@ -216,7 +218,7 @@ defmodule CCM do
   ## Examples
 
       iex> {x, y} = CoupledLogisticMapsGenerator.run(300, 0.15)
-      iex> ccm = CCM.new(x, y, embedding_dim: 3, tau: 1, num_samples: 50)
+      iex> ccm = CCM.new(x, y, embedding_dim: 3, tau: 1)
       iex> %{x_causes_y: fwd, y_causes_x: rev} = CCM.bidirectional_ccm(ccm)
       iex> is_boolean(fwd.convergent) and is_boolean(rev.convergent)
       true
@@ -286,41 +288,59 @@ defmodule CCM do
     end
   end
 
-  defp cross_map_sample(_embedding, _target, lib_size, total_points)
-       when lib_size >= total_points,
-       do: 0.0
+  defp cross_map_sample([], _target_train, _source_test, _target_test, _lib_size), do: 0.0
 
-  defp cross_map_sample(embedding, target, lib_size, total_points) do
-    actual_lib_size = min(lib_size, total_points - 1)
+  defp cross_map_sample(source_train, target_train, source_test, target_test, lib_size) do
+    library_size = min(lib_size, length(source_train))
+    neighbor_count = length(hd(source_train)) + 1
 
-    lib_indices = Enum.take_random(0..(total_points - 1), actual_lib_size)
-
-    if tuple_size(target) < total_points or total_points - actual_lib_size < 2 do
+    if library_size < neighbor_count or length(source_test) < 2 do
       0.0
     else
-      # MapSet membership check is O(1) vs O(n) for list `--`
-      lib_set = MapSet.new(lib_indices)
+      source_library = Enum.take(source_train, library_size)
+      target_library = Enum.take(target_train, library_size)
 
-      library = Enum.map(lib_indices, &elem(embedding, &1))
-      lib_targets = Enum.map(lib_indices, &elem(target, &1))
+      coordinate_predictions =
+        Enum.zip(source_test, target_test)
+        |> Enum.map(fn {source_point, target_point} ->
+          {target_point, predict_manifold_point(source_point, source_library, target_library)}
+        end)
+        |> Enum.reduce(List.duplicate([], length(hd(target_train))), fn {actual, predicted},
+                                                                        acc ->
+          Enum.zip(acc, Enum.zip(actual, predicted))
+          |> Enum.map(fn {values, pair} -> [pair | values] end)
+        end)
 
-      predictions =
-        for idx <- 0..(total_points - 1), not MapSet.member?(lib_set, idx) do
-          {elem(target, idx), predict_point(elem(embedding, idx), library, lib_targets)}
-        end
-
-      correlation(predictions)
+      coordinate_predictions
+      |> Enum.map(fn reversed_pairs -> correlation(Enum.reverse(reversed_pairs)) end)
+      |> mean()
     end
+  end
+
+  defp predict_manifold_point(query_point, source_library, target_library) do
+    nearest =
+      source_library
+      |> Enum.with_index()
+      |> Enum.map(fn {point, idx} -> {euclidean_distance(query_point, point), idx} end)
+      |> Enum.sort_by(&elem(&1, 0))
+      |> Enum.take(length(query_point) + 1)
+
+    weights = calculate_weights(nearest)
+
+    Enum.with_index(hd(target_library))
+    |> Enum.map(fn {_value, coordinate} ->
+      nearest
+      |> Enum.zip(weights)
+      |> Enum.reduce(0.0, fn {{_distance, idx}, weight}, sum ->
+        sum + Enum.at(Enum.at(target_library, idx), coordinate) * weight
+      end)
+    end)
   end
 
   defp predict_point(_query_point, [], _lib_targets), do: 0.0
   defp predict_point([], _library, _lib_targets), do: 0.0
 
   defp predict_point(query_point, library, lib_targets) do
-    # Use E+1 neighbors
-    embedding_dim = length(query_point)
-    k = min(embedding_dim + 1, length(library))
-
     distances =
       Enum.map(Enum.with_index(library), fn {lib_point, idx} ->
         dist = euclidean_distance(query_point, lib_point)
@@ -330,7 +350,7 @@ defmodule CCM do
     nearest =
       distances
       |> Enum.sort_by(&elem(&1, 0))
-      |> Enum.take(k)
+      |> Enum.take(min(length(query_point) + 1, length(library)))
 
     weights = calculate_weights(nearest)
     total_weight = Enum.sum(weights)
@@ -378,6 +398,9 @@ defmodule CCM do
     if denominator != 0, do: cov / denominator, else: 0.0
   end
 
+  defp mean([]), do: 0.0
+  defp mean(values), do: Enum.sum(values) / length(values)
+
   defp convergent?(results) when length(results) < 3, do: false
 
   defp convergent?(results) do
@@ -422,20 +445,10 @@ defmodule CCM do
     dist_values = Enum.map(distances, fn {dist, _} -> dist end)
     min_dist = Enum.min(dist_values)
 
-    # Sugihara et al. (2012) exponential weighting: w_i = exp(-d_i / d_min)
-    # If any distance is effectively zero, give full weight to exact matches only
-    if min_dist < 1.0e-12 do
-      Enum.map(dist_values, fn d -> if d < 1.0e-12, do: 1.0, else: 0.0 end)
-    else
-      weights = Enum.map(dist_values, fn d -> :math.exp(-d / min_dist) end)
-      sum = Enum.sum(weights)
+    weights = Enum.map(dist_values, fn d -> :math.exp(-d / (min_dist + 1.0e-5)) end)
+    sum = Enum.sum(weights)
 
-      if sum == 0.0 do
-        Enum.map(weights, fn _ -> 0.0 end)
-      else
-        Enum.map(weights, fn w -> w / sum end)
-      end
-    end
+    Enum.map(weights, fn weight -> weight / sum end)
   end
 
   @doc false
